@@ -1,6 +1,6 @@
 # Tark — AI-Powered Legal Research & Reasoning
 
-Legal AI is a retrieval-augmented legal research platform focused on Indian statutes (IPC and BNS). It combines a retrieval layer, a vector store, and NVIDIA-powered reasoning models to provide concise, citation-backed legal research.
+Tark AI is a retrieval-augmented legal research platform focused on Indian statutes (IPC and BNS). It combines a retrieval layer, a vector store, and NVIDIA-powered reasoning models to provide concise, citation-backed legal research.
 
 ![Architecture](./public/architecture.png)
 
