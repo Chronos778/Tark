@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+  <rect width="100%" height="100%" fill="#FBFBFE"/>
+  <!-- Concentric circles -->
+  <g transform="translate(360,260)">
+    <circle r="210" fill="#4C45D6" opacity="0.95" />
+    <circle r="150" fill="#2F22B8" opacity="0.97" />
+    <circle r="90"  fill="#15143A" opacity="0.98" />
+  </g>
+  <!-- Labels and pointers -->
+  <line x1="580" y1="80" x2="760" y2="80" stroke="#6F6AE8" stroke-width="2"/>
+  <circle cx="760" cy="80" r="4" fill="#6F6AE8"/>
+  <text x="780" y="86" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#222">Intelligence Layer</text>
+  <text x="780" y="108" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#444">NVIDIA NIM: Llama 3.1 70B & 8B</text>
+
+  <line x1="120" y1="220" x2="40" y2="220" stroke="#6F6AE8" stroke-width="2"/>
+  <circle cx="40" cy="220" r="4" fill="#6F6AE8"/>
+  <text x="60" y="226" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#222">Retrieval Layer</text>
+  <text x="60" y="248" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#444">NVIDIA embeddings + ChromaDB</text>
+
+  <line x1="520" y1="350" x2="760" y2="350" stroke="#6F6AE8" stroke-width="2"/>
+  <circle cx="760" cy="350" r="4" fill="#6F6AE8"/>
+  <text x="780" y="356" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#222">Core Data</text>
+  <text x="780" y="378" font-family="Arial, Helvetica, sans-serif" font-size="14" fill="#444">IPC and BNS statute corpus</text>
+
+  <g transform="translate(40,28)">
+    <text x="0" y="18" font-family="Arial, Helvetica, sans-serif" font-size="22" fill="#111">Glowing Journey — Architecture</text>
+  </g>
+</svg>

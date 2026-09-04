@@ -1,4 +1,18 @@
-# ⚖️ LegalAi: The Intelligent Justice Engine
+# Glowing Journey — LEGAL AI
+
+**Democratizing legal research with a retrieval-augmented, NVIDIA-powered intelligence stack.**
+
+![Architecture](./public/architecture.svg)
+
+## Architecture
+
+The diagram above describes the system's three primary layers:
+
+- Intelligence Layer — NVIDIA NIM serving Llama 3.1 (70B) and 8B models for legal reasoning.
+- Retrieval Layer — NVIDIA embeddings with ChromaDB vector store for precise semantic search.
+- Core Data — IPC and BNS statute corpus (ingested, OCR-cleaned, and indexed).
+
+(An SVG version of the architecture was added to public/architecture.svg.)
 
 **Democratizing Legal Justice with NVIDIA-Powered AI.**
 *Winner/Participant at Rubix TSEC Hackathon*
