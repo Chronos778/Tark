@@ -1,0 +1,25 @@
+services:
+  gateway:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.gateway
+    ports:
+      - "3001:3001"
+    environment:
+      - RAG_SERVICE_URL=http://rag:8000
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    depends_on:
+      - rag
+
+  rag:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.rag
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - QUBRID_API_KEY=${QUBRID_API_KEY}
+    volumes:
+      - ../rag_service/chroma_db:/app/rag_service/chroma_db
+      - ../rag_service/data:/app/rag_service/data

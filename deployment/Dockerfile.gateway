@@ -1,0 +1,31 @@
+# Use Node.js as the base image
+FROM node:20-slim AS base
+
+# Stage 1: Build Frontend
+FROM base AS frontend-builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+# Stage 2: Final Image
+FROM base
+WORKDIR /app
+
+# Copy built frontend
+COPY --from=frontend-builder /app/dist ./dist
+
+# Set up server
+WORKDIR /app/server
+COPY server/package*.json ./
+RUN npm install --production
+COPY server/ .
+
+# Environment variables
+ENV PORT=3001
+ENV NODE_ENV=production
+
+EXPOSE 3001
+
+CMD ["node", "index.js"]

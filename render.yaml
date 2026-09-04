@@ -1,0 +1,35 @@
+services:
+  # 1. The RAG Service (Python FastAPI with OCR Support)
+  - type: web
+    name: legal-ai-rag
+    env: docker
+    dockerContext: .
+    dockerfilePath: deployment/Dockerfile.rag
+    plan: free
+    # Force single worker to save RAM
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+    envVars:
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+
+  # 2. The API Gateway & Frontend (Node.js)
+  - type: web
+    name: legal-ai-gateway
+    env: docker
+    dockerContext: .
+    dockerfilePath: deployment/Dockerfile.gateway
+    plan: free
+    envVars:
+      - key: RAG_SERVICE_URL
+        fromService:
+          name: legal-ai-rag
+          type: web
+          property: host
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+      - key: OPENROUTER_API_KEY
+        sync: false
