@@ -1,6 +1,16 @@
 
 import os
+import sys
 import json
+
+# Ensure UTF-8 output on Windows terminals
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import chromadb
 from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
@@ -15,6 +25,9 @@ CHROMA_DB_PATH = os.path.join(BASE_DIR, "rag_service", "chroma_db")
 # Load .env
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
+def is_valid_key(k: str | None) -> bool:
+    return bool(k and not k.startswith("your_") and len(k.strip()) > 15)
+
 class NvidiaEmbeddingFunction(chromadb.EmbeddingFunction):
     def __init__(self, api_key):
         self.api_key = api_key
@@ -22,7 +35,8 @@ class NvidiaEmbeddingFunction(chromadb.EmbeddingFunction):
     
     def __call__(self, input: List[str]) -> List[List[float]]:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-        data = {"input": input, "model": "nvidia/nv-embedqa-e5-v5", "input_type": "query", "encoding_format": "float"}
+        # Use active model (nvidia/llama-3.2-nv-embedqa-1b-v1 or baai/bge-m3)
+        data = {"input": input, "model": "baai/bge-m3", "input_type": "query", "encoding_format": "float"}
         response = requests.post(self.url, headers=headers, json=data)
         if response.status_code != 200:
             raise Exception(f"NVIDIA Embedding Error: {response.text}")
@@ -35,16 +49,13 @@ def ingest_vector_db():
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     
     nvidia_api_key = os.getenv("NVIDIA_API_KEY")
-    if nvidia_api_key:
-        print("🔑 Found NVIDIA_API_KEY. Using NVIDIA Cloud Embeddings (nv-embedqa-e5-v5)...")
+    if is_valid_key(nvidia_api_key):
+        print("🔑 Valid NVIDIA_API_KEY detected. Using NVIDIA Cloud Embeddings (baai/bge-m3)...")
         ef = NvidiaEmbeddingFunction(nvidia_api_key)
         collection_name = "legal_knowledge_v2"
     else:
-        print("ℹ️ Using local SentenceTransformer embeddings...")
-        try:
-            ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-        except Exception:
-            ef = embedding_functions.DefaultEmbeddingFunction()
+        print("ℹ️ Using local fast ONNX embeddings (all-MiniLM-L6-v2) for offline reliability...")
+        ef = embedding_functions.DefaultEmbeddingFunction()
         collection_name = "legal_knowledge"
         
     # Get or create collection

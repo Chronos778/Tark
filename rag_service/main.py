@@ -3,6 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import os
+import sys
+
+# Ensure UTF-8 output on Windows terminals
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false" # Prevent deadlock
 
 from dotenv import load_dotenv
@@ -13,7 +23,7 @@ from rag_engine import RAGEngine
 base_path = pathlib.Path(__file__).parent.parent
 load_dotenv(dotenv_path=base_path / ".env")
 
-app = FastAPI(title="LegalAi RAG Service")
+app = FastAPI(title="Tark AI RAG Service")
 
 app.add_middleware(
     CORSMiddleware,

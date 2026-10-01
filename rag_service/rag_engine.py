@@ -1,5 +1,15 @@
 
 import os
+import sys
+
+# Ensure UTF-8 output on Windows terminals
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import json
 import re
 from typing import List, Dict, Any, Optional
@@ -10,14 +20,20 @@ import io
 from text_processor import TextProcessor
 from conversation_memory import ConversationMemory
 
+def is_valid_key(k: str | None) -> bool:
+    return bool(k and not k.startswith("your_") and len(k.strip()) > 15)
+
 class RAGEngine:
     def __init__(self):
-        self.nvidia_api_key = os.getenv("NVIDIA_API_KEY")
-        self.openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        nvidia_key = os.getenv("NVIDIA_API_KEY")
+        openrouter_key = os.getenv("OPENROUTER_API_KEY")
+        
+        self.nvidia_api_key = nvidia_key if is_valid_key(nvidia_key) else None
+        self.openrouter_api_key = openrouter_key if is_valid_key(openrouter_key) else None
         
         # Priority: NVIDIA NIM -> OpenRouter
         self.api_key = self.nvidia_api_key or self.openrouter_api_key
-        self.provider = "nvidia" if self.nvidia_api_key else "openrouter"
+        self.provider = "nvidia" if self.nvidia_api_key else ("openrouter" if self.openrouter_api_key else None)
 
         # Model mapping
         if self.provider == "nvidia":
@@ -25,11 +41,16 @@ class RAGEngine:
             self.model_legal = os.getenv("NVIDIA_MODEL_LEGAL", "meta/llama-3.1-70b-instruct")
             self.model_simple = os.getenv("NVIDIA_MODEL_SIMPLE", "meta/llama-3.1-8b-instruct")
             print(f"[RAGEngine] Using NVIDIA NIM API. Models: {self.model_name}")
-        else:
+        elif self.provider == "openrouter":
             self.model_name = os.getenv("OPENROUTER_MODEL", "mistralai/mistral-7b-instruct")
             self.model_legal = os.getenv("OPENROUTER_MODEL_LEGAL", "nvidia/nemotron-orchestrator-8b")
             self.model_simple = os.getenv("OPENROUTER_MODEL_SIMPLE", "mistralai/mistral-7b-instruct")
             print(f"[RAGEngine] Using OpenRouter API. Models: {self.model_name}")
+        else:
+            self.model_name = None
+            self.model_legal = None
+            self.model_simple = None
+            print("[RAGEngine] ℹ️ Running in Local / Offline Mode (Fast Vector RAG & Rules Active).")
 
         if not self.api_key:
             print("[RAGEngine] ⚠️ Warning: No API Key found (NVIDIA or OpenRouter). LLM features disabled.")
@@ -53,8 +74,7 @@ class RAGEngine:
             
             def __call__(self, input: List[str]) -> List[List[float]]:
                 headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
-                # Model 'nvidia/nv-embedqa-e5-v5' is high quality and cloud-based
-                data = {"input": input, "model": "nvidia/nv-embedqa-e5-v5", "input_type": "query", "encoding_format": "float"}
+                data = {"input": input, "model": "baai/bge-m3", "input_type": "query", "encoding_format": "float"}
                 response = requests.post(self.url, headers=headers, json=data)
                 if response.status_code != 200:
                     raise Exception(f"NVIDIA Embedding Error: {response.text}")
@@ -63,21 +83,16 @@ class RAGEngine:
         try:
             self.db_client = chromadb.PersistentClient(path=chroma_path)
             
-            # Use NVIDIA Cloud Embeddings to save RAM (removes need for local models)
             if self.nvidia_api_key:
-                self.ef = NvidiaEmbeddingFunction(self.nvidia_api_key)
-                # Use v2 collection for the new embedding dimensions (1024)
-                collection_name = "legal_knowledge_v2"
+                try:
+                    self.ef = NvidiaEmbeddingFunction(self.nvidia_api_key)
+                    collection_name = "legal_knowledge_v2"
+                except Exception:
+                    self.ef = embedding_functions.DefaultEmbeddingFunction()
+                    collection_name = "legal_knowledge"
             else:
                 self.ef = embedding_functions.DefaultEmbeddingFunction()
-                try:
-                    existing_cols = [c.name for c in self.db_client.list_collections()]
-                    if "legal_knowledge" in existing_cols:
-                        collection_name = "legal_knowledge"
-                    else:
-                        collection_name = "legal_knowledge_default"
-                except Exception:
-                    collection_name = "legal_knowledge_default"
+                collection_name = "legal_knowledge"
                 
             self.collection = self.db_client.get_or_create_collection(name=collection_name, embedding_function=self.ef)
             print(f"[RAGEngine] Connected to Vector DB [{collection_name}]. ({self.collection.count()} docs)")
