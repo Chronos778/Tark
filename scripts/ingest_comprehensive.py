@@ -9,9 +9,11 @@ from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.config import Settings
 
-BASE_DIR = "d:/HACATHONS/RUBIX TSEC/legal-compass-ai-main"
-DATA_DIR = os.path.join(BASE_DIR, "rag_service/data")
-CHROMA_DIR = os.path.join(BASE_DIR, "rag_service/chroma_db")
+import pathlib
+
+BASE_DIR = str(pathlib.Path(__file__).resolve().parent.parent)
+DATA_DIR = os.path.join(BASE_DIR, "rag_service", "data")
+CHROMA_DIR = os.path.join(BASE_DIR, "rag_service", "chroma_db")
 
 def ingest_comprehensive_acts():
     """Ingest comprehensive multi-domain acts into vector database"""

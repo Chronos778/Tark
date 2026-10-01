@@ -50,12 +50,13 @@ def clean_bns_text(raw_text):
     return text.strip()
 
 def main():
-    base_dir = "d:/HACATHONS/RUBIX TSEC/legal-compass-ai-main"
-    ipc_csv_path = os.path.join(base_dir, "datasets resources/ipc_sections.csv")
-    bns_csv_path = os.path.join(base_dir, "datasets resources/bns_sections.csv")
-    mapping_json_path = os.path.join(base_dir, "rag_service/data/ipc_bns_mapping.json")
-    curated_json_path = os.path.join(base_dir, "src/data/key_bns_mappings.json")
-    output_path = os.path.join(base_dir, "src/data/ipc_bns.json")
+    import pathlib
+    base_dir = str(pathlib.Path(__file__).resolve().parent.parent)
+    ipc_csv_path = os.path.join(base_dir, "datasets resources", "ipc_sections.csv")
+    bns_csv_path = os.path.join(base_dir, "datasets resources", "bns_sections.csv")
+    mapping_json_path = os.path.join(base_dir, "rag_service", "data", "ipc_bns_mapping.json")
+    curated_json_path = os.path.join(base_dir, "src", "data", "key_bns_mappings.json")
+    output_path = os.path.join(base_dir, "src", "data", "ipc_bns.json")
 
     print("Loading datasets...")
 

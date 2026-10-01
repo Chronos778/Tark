@@ -3,11 +3,30 @@ import os
 import json
 import chromadb
 from chromadb.utils import embedding_functions
+from dotenv import load_dotenv
+import requests
+from typing import List
 
 # --- CONFIGURATION ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "rag_service", "data")
 CHROMA_DB_PATH = os.path.join(BASE_DIR, "rag_service", "chroma_db")
+
+# Load .env
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+
+class NvidiaEmbeddingFunction(chromadb.EmbeddingFunction):
+    def __init__(self, api_key):
+        self.api_key = api_key
+        self.url = "https://integrate.api.nvidia.com/v1/embeddings"
+    
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        data = {"input": input, "model": "nvidia/nv-embedqa-e5-v5", "input_type": "query", "encoding_format": "float"}
+        response = requests.post(self.url, headers=headers, json=data)
+        if response.status_code != 200:
+            raise Exception(f"NVIDIA Embedding Error: {response.text}")
+        return [item["embedding"] for item in response.json()["data"]]
 
 def ingest_vector_db():
     print(f"🚀 Starting Vector DB Ingestion into {CHROMA_DB_PATH}...")
@@ -15,12 +34,22 @@ def ingest_vector_db():
     # 1. Initialize ChromaDB
     client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
     
-    # Use strict Model for embeddings
-    ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-    
+    nvidia_api_key = os.getenv("NVIDIA_API_KEY")
+    if nvidia_api_key:
+        print("🔑 Found NVIDIA_API_KEY. Using NVIDIA Cloud Embeddings (nv-embedqa-e5-v5)...")
+        ef = NvidiaEmbeddingFunction(nvidia_api_key)
+        collection_name = "legal_knowledge_v2"
+    else:
+        print("ℹ️ Using local SentenceTransformer embeddings...")
+        try:
+            ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+        except Exception:
+            ef = embedding_functions.DefaultEmbeddingFunction()
+        collection_name = "legal_knowledge"
+        
     # Get or create collection
-    collection = client.get_or_create_collection(name="legal_knowledge", embedding_function=ef)
-    print("✅ ChromaDB Collection 'legal_knowledge' ready.")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=ef)
+    print(f"✅ ChromaDB Collection '{collection_name}' ready.")
     
     documents = []
     metadatas = []

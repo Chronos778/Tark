@@ -212,7 +212,7 @@ const ChatPage = () => {
   }, [messages, isLoading]);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval>;
     if (isLoading) {
         let i = 0;
         interval = setInterval(() => {
@@ -443,8 +443,13 @@ const ChatPage = () => {
         setLanguage(useLanguage);
     }
 
+    const currentSessionId = activeConversationId || `conv_${Date.now()}`;
+    if (!activeConversationId) {
+        setActiveConversationId(currentSessionId);
+    }
+
     try {
-        const response = await fetch(getApiUrl('/query'), { // Pointing directly to backend for stability
+        const response = await fetch(getApiUrl('/query'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -452,7 +457,8 @@ const ChatPage = () => {
                 language: useLanguage, // Use determined language immediately 
                 domain, 
                 arguments_mode: argumentsMode,
-                analysis_mode: analysisMode 
+                analysis_mode: analysisMode,
+                session_id: currentSessionId
             })
         });
         

@@ -79,39 +79,39 @@ async def query_rag(request: QueryRequest):
             if any(word in query_lower for word in ['hello', 'hi', 'hey', 'namaste', 'pranam', 'halo']):
                 if request.language == 'hi':
                     return {
-                        "answer": "नमस्ते! 👋 मैं **LegalAi** हूँ, आपका भारतीय कानूनी सहायक।\n\nमेरी विशेषज्ञता:\n- 🏛️ **आपराधिक कानून** (IPC/BNS)\n- 💻 **आईटी और साइबर कानून**\n- 🏢 **कॉर्पोरेट कानून**\n- 🛡️ **उपभोक्ता कानून**\n- 🚗 **परिवहन कानून**\n\nआज मैं आपकी कैसे मदद कर सकता हूँ?",
+                        "answer": "नमस्ते! 👋 मैं **तर्क (Tark AI)** हूँ, आपका भारतीय कानूनी सहायक।\n\nमेरी विशेषज्ञता:\n- 🏛️ **आपराधिक कानून** (IPC/BNS)\n- 💻 **आईटी और साइबर कानून**\n- 🏢 **कॉर्पोरेट कानून**\n- 🛡️ **उपभोक्ता कानून**\n- 🚗 **परिवहन कानून**\n\nआज मैं आपकी कैसे मदद कर सकता हूँ?",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "Hello! 👋 I'm **LegalAi**, your Indian legal assistant.\n\nI specialize in:\n- 🏛️ **Criminal Law** (IPC/BNS)\n- 💻 **IT & Cyber Law**\n- 🏢 **Corporate Law**\n- 🛡️ **Consumer Law**\n- 🚗 **Transport Law**\n\nHow can I help you today?",
+                        "answer": "Hello! 👋 I'm **Tark AI**, your Indian legal assistant.\n\nI specialize in:\n- 🏛️ **Criminal Law** (IPC/BNS)\n- 💻 **IT & Cyber Law**\n- 🏢 **Corporate Law**\n- 🛡️ **Consumer Law**\n- 🚗 **Transport Law**\n\nHow can I help you today?",
                         "citations": [],
                         "related_judgments": []
                     }
             elif any(phrase in query_lower for phrase in ['how can you help', 'what do you do', 'what can you do', 'help me', 'madad', 'sahayata', 'kya tum', 'sakte ho']):
                 if request.language == 'hi':
                     return {
-                        "answer": "मैं **LegalAi** हूँ, और मैं आपकी मदद कर सकता हूँ:\n\n1. **कानूनी प्रश्न**: विशिष्ट कानूनों के बारे में पूछें (जैसे, 'चोरी की सजा', 'कंपनी कैसे रजिस्टर करें')\n2. **तुलना**: पुराने बनाम नए कानूनों की तुलना करें (जैसे, 'IPC 302 बनाम BNS 103')\n3. **दस्तावेज़ सारांश**: सारांश के लिए कानूनी दस्तावेज़ अपलोड करें\n4. **केस लॉ**: ऐतिहासिक फैसलों पर जानकारी प्राप्त करें\n\nबस अपना प्रश्न टाइप करें!",
+                        "answer": "मैं **तर्क (Tark AI)** हूँ, और मैं आपकी मदद कर सकता हूँ:\n\n1. **कानूनी प्रश्न**: विशिष्ट कानूनों के बारे में पूछें (जैसे, 'चोरी की सजा', 'कंपनी कैसे रजिस्टर करें')\n2. **तुलना**: पुराने बनाम नए कानूनों की तुलना करें (जैसे, 'IPC 302 बनाम BNS 103')\n3. **दस्तावेज़ सारांश**: सारांश के लिए कानूनी दस्तावेज़ अपलोड करें\n4. **केस लॉ**: ऐतिहासिक फैसलों पर जानकारी प्राप्त करें\n\nबस अपना प्रश्न टाइप करें!",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "I'm **LegalAi**, and I can help you with:\n\n1. **Legal Queries**: Ask about specific laws (e.g., 'punishment for theft', 'how to register a company')\n2. **Comparisons**: Compare old vs. new laws (e.g., 'IPC 302 vs BNS 103')\n3. **Document Summarization**: Upload legal docs for a summary\n4. **Case Law**: Get information on landmark judgments\n\nJust type your question!",
+                        "answer": "I'm **Tark AI**, and I can help you with:\n\n1. **Legal Queries**: Ask about specific laws (e.g., 'punishment for theft', 'how to register a company')\n2. **Comparisons**: Compare old vs. new laws (e.g., 'IPC 302 vs BNS 103')\n3. **Document Summarization**: Upload legal docs for a summary\n4. **Case Law**: Get information on landmark judgments\n\nJust type your question!",
                         "citations": [],
                         "related_judgments": []
                     }
             elif any(phrase in query_lower for phrase in ['who are you', 'your name', 'about you', 'kaun ho', 'tumhara naam']):
                 if request.language == 'hi':
                      return {
-                        "answer": "मैं **LegalAi** हूँ, एक बुद्धिमान कानूनी सहायक जिसे भारतीय कानून को सरल बनाने के लिए डिज़ाइन किया गया है। मैं सटीक कानूनी मार्गदर्शन प्रदान करने के लिए IPC/BNS, IT अधिनियम, कंपनी अधिनियम आदि जैसे प्रमुख अधिनियमों को कवर करता हूँ।",
+                        "answer": "मैं **तर्क (Tark AI)** हूँ, एक बुद्धिमान कानूनी सहायक जिसे भारतीय कानून को सरल बनाने के लिए डिज़ाइन किया गया है। मैं सटीक कानूनी मार्गदर्शन प्रदान करने के लिए IPC/BNS, IT अधिनियम, कंपनी अधिनियम आदि जैसे प्रमुख अधिनियमों को कवर करता हूँ।",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "I am **LegalAi**, an intelligent legal assistant designed to simplify Indian law. I cover major acts like IPC/BNS, IT Act, Companies Act, and more to provide accurate legal guidance.",
+                        "answer": "I am **Tark AI**, an intelligent legal assistant designed to simplify Indian law. I cover major acts like IPC/BNS, IT Act, Companies Act, and more to provide accurate legal guidance.",
                         "citations": [],
                         "related_judgments": []
                     }

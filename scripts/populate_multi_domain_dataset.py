@@ -9,8 +9,10 @@ import os
 import requests
 from bs4 import BeautifulSoup
 
-BASE_DIR = "d:/HACATHONS/RUBIX TSEC/legal-compass-ai-main"
-DATA_DIR = os.path.join(BASE_DIR, "rag_service/data")
+import pathlib
+
+BASE_DIR = str(pathlib.Path(__file__).resolve().parent.parent)
+DATA_DIR = os.path.join(BASE_DIR, "rag_service", "data")
 DATASETS_DIR = os.path.join(BASE_DIR, "datasets resources")
 
 def parse_it_act():

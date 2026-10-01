@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Scale, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const AnimatedNavLink = ({ href, children, isActive }: { href: string; children: React.ReactNode; isActive?: boolean }) => {
+const AnimatedNavLink = ({ href, children, isActive }: { href: string; children: ReactNode; isActive?: boolean }) => {
   const defaultTextColor = isActive ? 'text-white font-medium' : 'text-gray-400';
   const hoverTextColor = 'text-white';
   const textSizeClass = 'text-sm';
@@ -25,7 +25,7 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
   const [headerShapeClass, setHeaderShapeClass] = useState('rounded-full');
   const [isHovered, setIsHovered] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const shapeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const shapeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 

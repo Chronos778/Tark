@@ -70,7 +70,14 @@ class RAGEngine:
                 collection_name = "legal_knowledge_v2"
             else:
                 self.ef = embedding_functions.DefaultEmbeddingFunction()
-                collection_name = "legal_knowledge_default"
+                try:
+                    existing_cols = [c.name for c in self.db_client.list_collections()]
+                    if "legal_knowledge" in existing_cols:
+                        collection_name = "legal_knowledge"
+                    else:
+                        collection_name = "legal_knowledge_default"
+                except Exception:
+                    collection_name = "legal_knowledge_default"
                 
             self.collection = self.db_client.get_or_create_collection(name=collection_name, embedding_function=self.ef)
             print(f"[RAGEngine] Connected to Vector DB [{collection_name}]. ({self.collection.count()} docs)")

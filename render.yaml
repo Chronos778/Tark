@@ -1,7 +1,7 @@
 services:
   # 1. The RAG Service (Python FastAPI with OCR Support)
   - type: web
-    name: legal-ai-rag
+    name: tark-rag
     env: docker
     dockerContext: .
     dockerfilePath: deployment/Dockerfile.rag
@@ -16,7 +16,7 @@ services:
 
   # 2. The API Gateway & Frontend (Node.js)
   - type: web
-    name: legal-ai-gateway
+    name: tark-gateway
     env: docker
     dockerContext: .
     dockerfilePath: deployment/Dockerfile.gateway
@@ -24,7 +24,7 @@ services:
     envVars:
       - key: RAG_SERVICE_URL
         fromService:
-          name: legal-ai-rag
+          name: tark-rag
           type: web
           property: host
       - key: PORT

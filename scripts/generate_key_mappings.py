@@ -117,10 +117,11 @@ def load_bns_text_from_json(json_path):
     return bns_data
 
 def main():
-    base_dir = r"d:/HACATHONS/RUBIX TSEC/legal-compass-ai-main"
-    ipc_csv_path = os.path.join(base_dir, "datasets resources/ipc_sections.csv")
-    bns_json_path = os.path.join(base_dir, "src/data/ipc_bns.json")
-    output_path = os.path.join(base_dir, "src/data/key_bns_mappings.json")
+    import pathlib
+    base_dir = str(pathlib.Path(__file__).resolve().parent.parent)
+    ipc_csv_path = os.path.join(base_dir, "datasets resources", "ipc_sections.csv")
+    bns_json_path = os.path.join(base_dir, "src", "data", "ipc_bns.json")
+    output_path = os.path.join(base_dir, "src", "data", "key_bns_mappings.json")
 
     print("Loading IPC data...")
     ipc_texts = load_ipc_text(ipc_csv_path)

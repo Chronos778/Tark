@@ -10,8 +10,10 @@ import os
 import re
 import time
 
-BASE_DIR = "d:/HACATHONS/RUBIX TSEC/legal-compass-ai-main"
-DATA_DIR = os.path.join(BASE_DIR, "rag_service/data")
+import pathlib
+
+BASE_DIR = str(pathlib.Path(__file__).resolve().parent.parent)
+DATA_DIR = os.path.join(BASE_DIR, "rag_service", "data")
 
 class LegalActExtractor:
     

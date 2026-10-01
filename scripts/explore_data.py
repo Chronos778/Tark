@@ -8,10 +8,11 @@ def normalize(text):
     return text.lower().strip().replace(".", "").replace("  ", " ")
 
 def main():
-    base_dir = "d:/HACATHONS/RUBIX TSEC/legal-compass-ai-main"
-    ipc_csv = os.path.join(base_dir, "datasets resources/ipc_sections.csv")
-    bns_csv = os.path.join(base_dir, "datasets resources/bns_sections.csv")
-    mapping_json = os.path.join(base_dir, "rag_service/data/ipc_bns_mapping.json")
+    import pathlib
+    base_dir = str(pathlib.Path(__file__).resolve().parent.parent)
+    ipc_csv = os.path.join(base_dir, "datasets resources", "ipc_sections.csv")
+    bns_csv = os.path.join(base_dir, "datasets resources", "bns_sections.csv")
+    mapping_json = os.path.join(base_dir, "rag_service", "data", "ipc_bns_mapping.json")
 
     # 1. Check JSON for existing mappings
     with open(mapping_json, 'r', encoding='utf-8') as f:

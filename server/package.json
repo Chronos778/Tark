@@ -1,7 +1,7 @@
 {
-  "name": "legal-compass-server",
+  "name": "tark-gateway",
   "version": "1.0.0",
-  "description": "API Gateway for Legal Compass AI",
+  "description": "API Gateway for Tark AI",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",

@@ -19,7 +19,7 @@ services:
       - "8000:8000"
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - QUBRID_API_KEY=${QUBRID_API_KEY}
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
     volumes:
       - ../rag_service/chroma_db:/app/rag_service/chroma_db
       - ../rag_service/data:/app/rag_service/data
