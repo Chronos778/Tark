@@ -1,25 +1,25 @@
-# ⚖️ Tark: AI-Powered Legal Research & Reasoning Engine
+# Tark: AI-Powered Legal Research and Reasoning Engine
 
-**Democratizing Indian Legal Justice with Retrieval-Augmented Generation (RAG) & Multi-Model Intelligence.**
+Democratizing Indian Legal Justice with Retrieval-Augmented Generation (RAG) and Domain-Adapted Intelligence.
 
-Tark is an advanced, high-precision legal research platform designed to help legal practitioners, law students, and citizens navigate India's legal transition from the historic **Indian Penal Code (IPC, 1860)** to the **Bharatiya Nyaya Sanhita (BNS, 2023)**, as well as cyber laws (**IT Act, 2000**), corporate regulations (**Companies Act, 2013**), consumer rights (**Consumer Protection Act, 2019**), and landmark **Supreme Court precedents**.
+Tark is an advanced, high-precision legal research platform engineered to assist legal practitioners, researchers, students, and citizens in navigating India's legal transition from the historic **Indian Penal Code (IPC, 1860)** to the **Bharatiya Nyaya Sanhita (BNS, 2023)**. The platform also provides comprehensive coverage for cyber laws (**Information Technology Act, 2000**), corporate regulations (**Companies Act, 2013**), consumer rights (**Consumer Protection Act, 2019**), and landmark **Supreme Court precedents**.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
-Tark is built on a resilient, 3-tier distributed architecture designed for low-latency reasoning and strict data privacy:
+Tark is built upon a resilient, three-tier distributed architecture engineered for low-latency reasoning and data security:
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │                   React 18 Frontend                    │
-│   (Vite + TypeScript + Tailwind CSS + Radix UI)       │
+│   (Vite + TypeScript + Tailwind CSS + Radix UI)        │
 │   • Dark Mode UI  • Voice STT/TTS  • PDF Export        │
 └──────────────────────────┬─────────────────────────────┘
                            │
                            ▼
 ┌────────────────────────────────────────────────────────┐
-│                   Node.js API Gateway                  │
+│                  Node.js API Gateway                   │
 │   (Express + Rate Limiting + Proxy Middleware)         │
 │   • AI Route Throttling  • Static Bundle Hosting       │
 └──────────────────────────┬─────────────────────────────┘
@@ -27,28 +27,28 @@ Tark is built on a resilient, 3-tier distributed architecture designed for low-l
                            ▼
 ┌────────────────────────────────────────────────────────┐
 │                 Python RAG & AI Engine                 │
-│   (FastAPI + ChromaDB + Sentence Transformers / NIM)   │
-│   • 12-Stage Text Cleaner  • OCR & Poppler Pipeline   │
-│   • Multi-Turn Session Memory  • Legal Draft Engine   │
+│   (FastAPI + ChromaDB + ONNX Embeddings / NIM)         │
+│   • 12-Stage Text Cleaner  • OCR Pipeline              │
+│   • Multi-Turn Session Memory  • Legal Draft Engine    │
 └────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🚀 Key Features
+## Core Capabilities
 
-### 1. ⚖️ Intelligent Legal Research & Reasoning
-- **Neutral Legal Analysis**: Evaluates complex legal dilemmas into objective factual factors and statutory interpretations.
-- **Balanced Arguments Mode**: Instantly generates strategic arguments *For* and *Against* a legal contention.
-- **Citation-First Verification**: Every statute is cross-referenced with direct links to [IndiaCode.nic.in](https://www.indiacode.nic.in) and [ConstitutionOfIndia.net](https://www.constitutionofindia.net).
-- **Landmark Case Laws**: Integrates Supreme Court judgments for instant jurisprudence retrieval.
+### 1. Intelligent Legal Research and Reasoning
+- **Neutral Legal Analysis**: Deconstructs complex legal dilemmas into objective factual factors and statutory interpretations.
+- **Balanced Arguments Mode**: Synthesizes structured arguments *For* and *Against* a given legal contention to support comprehensive trial preparation.
+- **Citation-First Verification**: Every statute is cross-referenced with verified hyperlinks to primary sources including [IndiaCode.nic.in](https://www.indiacode.nic.in) and [ConstitutionOfIndia.net](https://www.constitutionofindia.net).
+- **Landmark Case Laws**: Integrates Supreme Court judgments for rapid jurisprudence retrieval and contextual analysis.
 
-### 2. 🔄 Statutory Cross-Mapping (IPC ↔ BNS)
-- Real-time side-by-side comparative analysis of old colonial sections against new BNS provisions.
-- Categorizes legislative changes into *Renumbered*, *Modified*, *New*, and *Removed* with penalty difference matrices.
+### 2. Statutory Cross-Mapping (IPC to BNS)
+- Real-time side-by-side comparative analysis of colonial provisions against newly enacted BNS sections.
+- Categorizes legislative amendments into *Renumbered*, *Modified*, *New*, and *Removed* classifications, complete with penalty differential matrices.
 
-### 3. 📄 Automated Legal Document Drafting
-Template-driven, legally structured drafting in **formal English** or **Devanagari Hindi**:
+### 3. Automated Legal Document Drafting
+Template-driven, legally validated drafting in **formal English** or **Devanagari Hindi**:
 - **Legal Notice** (Civil/Commercial breach)
 - **Non-Disclosure Agreement (NDA)**
 - **Rent Agreement (Kirayanama)**
@@ -57,36 +57,36 @@ Template-driven, legally structured drafting in **formal English** or **Devanaga
 - **POSH Act Complaint** (Prevention of Sexual Harassment at Workplace)
 - **RTI Application** (Right to Information Act, 2005)
 
-### 4. 📑 Multi-Modal Document Summarizer
-- Upload digital or scanned PDF petitions, FIRs, or court orders.
-- 12-stage text cleaning pipeline with Tesseract OCR fallback.
-- Map-reduce summarization producing Executive Summary, Case Classification, Referenced Sections, Critical Observations, and Legal Implications.
+### 4. Multi-Modal Document Summarizer
+- Ingests native and scanned PDF petitions, First Information Reports (FIRs), or judicial orders.
+- Executes a 12-stage text preprocessing and cleaning pipeline with Tesseract OCR fallback for scanned materials.
+- Employs map-reduce summarization yielding an Executive Summary, Case Classification, Referenced Sections, Critical Observations, and Actionable Legal Implications.
 
-### 5. 🎙️ Vernacular & Voice Intelligence
-- **Bilingual Interface**: Native support for English and Hindi (Devanagari input and translation).
-- **Speech-to-Text (STT)**: Direct microphone input via Web Speech API.
-- **Text-to-Speech (TTS)**: Multi-voice read-aloud functionality with pace control.
+### 5. Vernacular and Voice Accessibility
+- **Bilingual Interface**: Full native support for English and Hindi (Devanagari input, processing, and translation).
+- **Speech-to-Text (STT)**: Direct microphone dictation via the browser Web Speech API.
+- **Text-to-Speech (TTS)**: Multi-voice read-aloud functionality with adjustable playback pacing.
 
 ---
 
-## 🛠️ Tech Stack
+## Technical Stack
 
-| Layer | Technologies |
+| Subsystem | Technologies |
 | :--- | :--- |
-| **Frontend** | React 18, TypeScript, Vite, Tailwind CSS, Radix UI, Lucide Icons, Framer Motion, jsPDF |
-| **Gateway** | Node.js, Express, `http-proxy-middleware`, `express-rate-limit` |
-| **AI / RAG Service** | Python 3.10+, FastAPI, Uvicorn, ChromaDB, Sentence Transformers |
+| **Frontend Client** | React 18, TypeScript, Vite, Tailwind CSS, Radix UI, Lucide Icons, Framer Motion, jsPDF |
+| **API Gateway** | Node.js, Express, `http-proxy-middleware`, `express-rate-limit` |
+| **AI and RAG Service** | Python 3.10+, FastAPI, Uvicorn, ChromaDB, ONNX Runtime (`all-MiniLM-L6-v2`) |
 | **Document Processing** | PyMuPDF (fitz), pypdf, Tesseract OCR, Poppler (`pdf2image`), BeautifulSoup4 |
-| **Models Supported** | Llama 3.1 (70B & 8B), Qwen 2.5, Mistral 7B via NVIDIA NIM, OpenRouter, or local Ollama |
+| **LLM Execution** | Hybrid support: Local SLM (Ollama / Llama 3.2), NVIDIA NIM, or OpenRouter |
 
 ---
 
-## ⚡ Getting Started
+## Getting Started
 
 ### 1. Prerequisites
 - **Node.js**: v18.x or v20.x+
-- **Python**: 3.10 to 3.12 recommended
-- *(Optional for OCR)*: [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) and [Poppler](https://github.com/oschwartz10612/poppler-windows/releases)
+- **Python**: 3.10 to 3.14 (Virtual environment recommended)
+- *(Optional for scanned PDF OCR)*: [Tesseract OCR](https://github.com/UB-Mannheim/tesseract/wiki) and [Poppler](https://github.com/oschwartz10612/poppler-windows/releases)
 
 ### 2. Installation
 
@@ -102,80 +102,84 @@ Template-driven, legally structured drafting in **formal English** or **Devanaga
    cd server && npm install && cd ..
    ```
 
-3. **Install Python dependencies**:
+3. **Set up Python Virtual Environment**:
    ```bash
-   cd rag_service
-   pip install -r requirements.txt
-   cd ..
+   python -m venv .venv
+   .\.venv\Scripts\pip install -r rag_service\requirements.txt
    ```
 
 ### 3. Environment Configuration
-Copy `.env.example` to `.env` and add your API credentials:
-```bash
-cp .env.example .env
-```
-Inside `.env`:
+Create a `.env` file in the project root:
 ```ini
-NVIDIA_API_KEY=your_nvidia_api_key_here
-# OR
-OPENROUTER_API_KEY=your_openrouter_api_key_here
+# Optional Cloud LLM Keys (leave blank for offline / local mode)
+NVIDIA_API_KEY=
+OPENROUTER_API_KEY=
 
+# Service Endpoints
 RAG_SERVICE_URL=http://localhost:8000
 VITE_API_URL=http://localhost:8000
 PORT=3001
 ```
 
 ### 4. Running the Platform Locally
-Start all three tiers (Client, Gateway, RAG Service) concurrently:
-```bash
-npm run dev:all
+
+#### Terminal 1 — Start the RAG Microservice:
+```powershell
+cd rag_service
+..\.venv\Scripts\uvicorn main:app --reload --port 8000
 ```
-- **Web Application**: `http://localhost:5173`
-- **API Gateway**: `http://localhost:3001`
-- **FastAPI RAG Docs**: `http://localhost:8000/docs`
+
+#### Terminal 2 — Start the Frontend Application:
+```powershell
+npm run dev
+```
+
+The web client will be available at `http://localhost:5173` and the interactive API documentation will be accessible at `http://localhost:8000/docs`.
 
 ---
 
-## 🧪 Running the Test Suite
+## Running the Automated Test Suite
 
-Run the end-to-end automated validation suite:
+Execute the end-to-end platform validation suite:
 ```bash
-python tests/test_all_features.py
+.\.venv\Scripts\python.exe tests\test_all_features.py
 ```
-This tests:
-1. Vector DB & Knowledge Base Connectivity
+
+This validates:
+1. Vector Database and Knowledge Base Connectivity
 2. Criminal Law Retrieval (BNS Section 103)
 3. Cyber Law Retrieval (IT Act 2000)
-4. Citation Integrity & URL Verification
-5. Balanced Arguments & Neutral Analysis
-6. Legal Drafting Engine
+4. Citation Integrity and Primary Source URL Verification
+5. Balanced Arguments and Neutral Legal Analysis
+6. Legal Document Drafting Engine
 7. Document Summarization Pipeline
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 Tark/
-├── datasets resources/       # IPC, BNS, and IT Act raw corpora & CSVs
-├── deployment/               # Dockerfiles & docker-compose configurations
-├── public/                   # 3D assets, icons, and diagrams
-├── rag_service/              # Core Python RAG & AI microservice
-│   ├── data/                 # Indexed JSON mappings & Supreme Court dataset
-│   ├── conversation_memory.py# Session memory & context query reformulation
-│   ├── main.py               # FastAPI application endpoints
-│   ├── rag_engine.py         # Vector search, prompt synthesis, drafting
-│   └── text_processor.py     # 12-stage text cleaning & OCR pipeline
-├── scripts/                  # Data preparation, ETL, and vector ingestion
-├── server/                   # Node.js API Gateway & Rate Limiter
-├── src/                      # React 18 frontend source code
-│   ├── components/           # Reusable UI & presentation components
-│   ├── pages/                # Chat, Compare, Draft, Summarize, Auth
-│   └── lib/                  # API clients and utilities
-└── tests/                    # End-to-end integration test suites
+├── datasets resources/       # IPC, BNS, and IT Act raw corpora and reference CSVs
+├── deployment/               # Containerization and orchestration specifications
+├── public/                   # Static assets, branding, and diagrams
+├── rag_service/              # Core Python RAG microservice
+│   ├── data/                 # Indexed statutory mappings and Supreme Court dataset
+│   ├── chroma_db/            # Local vector database store
+│   ├── conversation_memory.py# Multi-turn session context reformulation
+│   ├── main.py               # FastAPI endpoints and route handlers
+│   ├── rag_engine.py         # Vector retrieval, prompt synthesis, and drafting
+│   └── text_processor.py     # 12-stage text cleaning and OCR pipeline
+├── scripts/                  # Data preparation, ETL, and vector ingestion tools
+├── server/                   # Node.js API Gateway and security middleware
+├── src/                      # React 18 application source code
+│   ├── components/           # Modular UI and presentation components
+│   ├── pages/                # Chat, Compare, Draft, Summarize, and Auth views
+│   └── lib/                  # Client-side API connectors and utility functions
+└── tests/                    # End-to-end integration and verification suites
 ```
 
 ---
 
-## 📜 License
+## License
 This project is licensed under the MIT License.
