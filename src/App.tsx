@@ -2,8 +2,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { lazy, Suspense, useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { getApiUrl } from "@/lib/api";
 import Index from "./pages/Index";
 const ChatPage = lazy(() => import("./pages/ChatPage"));
 const ComparisonPage = lazy(() => import("./pages/ComparisonPage"));
@@ -18,7 +19,13 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
-const App = () => (
+const App = () => {
+  useEffect(() => {
+    // Silently pre-warm backend (e.g. Render free instance cold start) on app load
+    fetch(getApiUrl('/health')).catch(() => {});
+  }, []);
+
+  return (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
@@ -39,7 +46,9 @@ const App = () => (
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/chat" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
           <Route path="/draft" element={<ProtectedRoute><DraftingPage /></ProtectedRoute>} />
+          <Route path="/drafting" element={<Navigate to="/draft" replace />} />
           <Route path="/compare" element={<ProtectedRoute><ComparisonPage /></ProtectedRoute>} />
+          <Route path="/comparison" element={<Navigate to="/compare" replace />} />
           <Route path="/summarize" element={<ProtectedRoute><SummarizePage /></ProtectedRoute>} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
@@ -49,5 +58,6 @@ const App = () => (
     </TooltipProvider>
   </QueryClientProvider>
 );
+};
 
 export default App;

@@ -5,7 +5,7 @@ import { FileText, Upload, CheckCircle, Sparkles, AlertCircle, Loader2, Download
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { motion, AnimatePresence } from "framer-motion";
-import { cn } from "@/lib/utils";
+import { cn, formatMarkdown } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -19,13 +19,6 @@ interface SummaryHistory {
     timestamp: number;
     dateStr: string;
 }
-
-const formatMarkdown = (text: string): string => {
-  if (!text) return "";
-  let formatted = text.replace(/\|{2,}/g, "|\n|");
-  formatted = formatted.replace(/([^\n])\n(\| ?[^\n]+\| *\n\| *[-:| ]+ *\|)/g, "$1\n\n$2");
-  return formatted;
-};
 
 const SummarizePage = () => {
     const [file, setFile] = useState<File | null>(null);
