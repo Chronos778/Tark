@@ -792,7 +792,7 @@ class RAGEngine:
                 "3. Do not invent nonexistent section numbers or fake case names. Only cite genuine Indian statutes and established landmark jurisprudence.\r\n"
                 "4. Be structured, objective, and clear. Do not give informal personal advice.\r\n"
                 "5. STRUCTURE: Direct Answer; Key Provisions / Legal Framework (governing Acts, sections, essentials, clauses); Formalities & Procedural Requirements / Outcome; Relevant Acts & Sources.\r\n"
-                "6. If using a Markdown table, ensure valid GitHub Flavored Markdown with every row on its own line separated by standard newlines (never merge rows with || on a single line).\r\n\r\n"
+                "6. If using a Markdown table, ensure strictly valid GitHub Flavored Markdown: EVERY row MUST end with a newline before the next row starts. NEVER merge multiple rows onto a single line (never emit | | | or | | between rows on the same line). Do not leave blank lines between table rows.\r\n\r\n"
                 "DISCLAIMER: For informational purposes only. Not legal advice."
             )
             if language == "hi":
@@ -947,12 +947,18 @@ class RAGEngine:
                     if idx != -1:
                         answer = answer[:idx].strip()
 
-                # Cleanup
-                # Fix collapsed table rows where '|' of previous row touches '|' of next row without newline
+                # Cleanup & Markdown Table Normalization
+                # 1. Separate merged rows with 3+ pipes: e.g. '... trial possible. | | | 95 | ...'
+                answer = re.sub(r'\|[^\S\r\n]*\|[^\S\r\n]*\|[^\S\r\n]*', '|\r\n| | ', answer)
+                # 2. Separate merged rows with 2 pipes between content: e.g. '... conduct. | | Information Technology Act ...'
+                answer = re.sub(r'([^\r\n|])[^\S\r\n]*\|[^\S\r\n]*\|[^\S\r\n]*([^|\r\n])', r'\1 |\r\n| \2', answer)
+                # 3. Unspaced merged pipes: e.g. '||'
                 answer = re.sub(r'\|{2,}', '|\r\n|', answer)
-                # Ensure a blank line before any table if preceded by normal text
-                answer = re.sub(r'([^\r\n])\r\n(\| ?[^\r\n]+\| *\r\n\| *[-:| ]+ *\|)', r'\1\r\n\r\n\2', answer)
-                answer = re.sub(r'\r\n{3,}', '\r\n\r\n', answer).strip()
+                # 4. Remove blank lines between table rows so the table body is not broken
+                answer = re.sub(r'(\|\s*)\r?\n(?:[ \t]*\r?\n)+([ \t]*\|)', r'\1\r\n\2', answer)
+                # 5. Ensure a blank line before any table if preceded by normal text
+                answer = re.sub(r'([^\r\n|])[ \t]*\r?\n(\| ?[^\r\n]+\|[ \t]*\r?\n\| *[-:| ]+ *\|)', r'\1\r\n\r\n\2', answer)
+                answer = re.sub(r'\r?\n{3,}', '\r\n\r\n', answer).strip()
                 # Cache the structured result
                 self._cache[cache_key] = {
                     "answer": answer,

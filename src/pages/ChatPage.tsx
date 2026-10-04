@@ -92,10 +92,23 @@ const LOADING_TEXTS_HI = [
 
 const formatMarkdown = (text: string): string => {
   if (!text) return "";
-  // 1. Fix collapsed table rows where consecutive pipes join without newline (e.g., "||----------|" or "etc. || Section 103 |")
-  let formatted = text.replace(/\|{2,}/g, "|\n|");
-  // 2. Ensure a blank line before any table if preceded directly by text
-  formatted = formatted.replace(/([^\n])\n(\| ?[^\n]+\| *\n\| *[-:| ]+ *\|)/g, "$1\n\n$2");
+  let formatted = text;
+
+  // 1. Separate merged rows with 3+ pipes: e.g. '... trial possible. | | | 95 | ...'
+  formatted = formatted.replace(/\|[^\S\r\n]*\|[^\S\r\n]*\|[^\S\r\n]*/g, "|\n| | ");
+  
+  // 2. Separate merged rows with 2 pipes between content: e.g. '... conduct. | | Information Technology Act ...'
+  formatted = formatted.replace(/([^\r\n|])[^\S\r\n]*\|[^\S\r\n]*\|[^\S\r\n]*([^|\r\n])/g, "$1 |\n| $2");
+
+  // 3. Separate unspaced merged pipes: e.g. '||'
+  formatted = formatted.replace(/\|{2,}/g, "|\n|");
+
+  // 4. Clean up any blank lines between table rows (lines that begin and end with |)
+  formatted = formatted.replace(/(\|\s*)\r?\n(?:[ \t]*\r?\n)+([ \t]*\|)/g, "$1\n$2");
+
+  // 5. Ensure a blank line before a table only if preceded by non-table text
+  formatted = formatted.replace(/([^\r\n|])[ \t]*\r?\n(\| ?[^\r\n]+\|[ \t]*\r?\n\| *[-:| ]+ *\|)/g, "$1\n\n$2");
+
   return formatted;
 };
 
