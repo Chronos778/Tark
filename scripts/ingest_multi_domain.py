@@ -6,7 +6,6 @@ Adds IT Act, Companies Act, Consumer Protection Act, Motor Vehicles Act
 import json
 import os
 import sys
-from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.config import Settings
 

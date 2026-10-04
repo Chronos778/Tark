@@ -21,7 +21,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 # Ensure rag_service is in python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'rag_service')))
 
-from rag_engine import RAGEngine
+from rag_engine import RAGEngine  # type: ignore
 
 def test_header(name: str):
     print("\n" + "=" * 60)

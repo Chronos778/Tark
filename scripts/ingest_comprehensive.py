@@ -5,7 +5,6 @@ Final ingestion with 59 additional sections
 
 import json
 import os
-from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.config import Settings
 
