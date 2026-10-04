@@ -472,6 +472,15 @@ const ChatPage = () => {
         setActiveConversationId(currentSessionId);
     }
 
+    // Extract prior message history (up to last 10 messages) for multi-turn conversation context
+    const historyPayload = messages
+        .filter(m => (m.role === 'user' || m.role === 'assistant') && m.content)
+        .slice(-10)
+        .map(m => ({
+            role: m.role,
+            content: m.content
+        }));
+
     try {
         const response = await fetch(getApiUrl('/query'), {
             method: 'POST',
@@ -482,7 +491,8 @@ const ChatPage = () => {
                 domain, 
                 arguments_mode: argumentsMode,
                 analysis_mode: analysisMode,
-                session_id: currentSessionId
+                session_id: currentSessionId,
+                history: historyPayload
             })
         });
         

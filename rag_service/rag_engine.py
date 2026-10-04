@@ -178,17 +178,22 @@ class RAGEngine:
         q = query.lower().strip()
         return q.startswith(self._FOLLOWUP_LEADS) or any(w in self._FOLLOWUP_WORDS for w in words)
 
-    def _rewrite_followup(self, session_id: str, query: str) -> str:
+    def _rewrite_followup(self, session_id: Optional[str], query: str, history: Optional[List[Dict[str, Any]]] = None) -> str:
         """Turn a short follow-up ("and if it is only an attempt?") into a standalone question."""
-        history = list(self.conversation_memory.get_history(session_id, max_messages=6))
+        history_list = []
+        if history:
+            history_list = [m for m in history if m.get("content") and m.get("role") in ("user", "assistant")]
+        elif session_id:
+            history_list = list(self.conversation_memory.get_history(session_id, max_messages=6))
+
         # The server stores the current question before calling the engine; ignore that copy
-        if history and history[-1].get("role") == "user" and history[-1].get("content") == query:
-            history = history[:-1]
-        if not history or not self.api_key or not self._looks_like_followup(query):
+        if history_list and history_list[-1].get("role") == "user" and history_list[-1].get("content") == query:
+            history_list = history_list[:-1]
+        if not history_list or not self.api_key or not self._looks_like_followup(query):
             return query
 
-        last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
-        last_answer = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
+        last_user = next((m["content"] for m in reversed(history_list) if m["role"] == "user"), "")
+        last_answer = next((m["content"] for m in reversed(history_list) if m["role"] == "assistant"), "")
         prompt = (
             "Rewrite the user's latest question as one standalone question that makes sense without the "
             "conversation. Keep Indian legal terms and section numbers. If it is already standalone, return it "
@@ -575,9 +580,9 @@ class RAGEngine:
             print(f"[RAGEngine] Compare Error: {e}")
             return {"error": str(e)}
 
-    async def query(self, query: str, language: str = "en", arguments_mode: bool = False, analysis_mode: bool = False, session_id: Optional[str] = None) -> Dict[str, Any]:
+    async def query(self, query: str, language: str = "en", arguments_mode: bool = False, analysis_mode: bool = False, session_id: Optional[str] = None, history: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
-        Semantic Search + LLM Generation with Conversation Memory.
+        Semantic Search + LLM Generation with Multi-Turn Conversation Memory.
         
         Args:
             query: User's question
@@ -585,25 +590,46 @@ class RAGEngine:
             arguments_mode: Generate balanced arguments
             analysis_mode: Generate neutral analysis
             session_id: Optional session ID for conversation memory
+            history: Optional list of previous conversation messages [{"role": "user"|"assistant", "content": "..."}]
         """
+        # Normalize prior conversation history
+        conv_history: List[Dict[str, str]] = []
+        if history:
+            conv_history = [
+                {"role": m.get("role", "user"), "content": str(m.get("content", ""))}
+                for m in history
+                if m.get("content") and m.get("role") in ("user", "assistant")
+            ]
+        elif session_id:
+            conv_history = [
+                {"role": m.get("role", "user"), "content": str(m.get("content", ""))}
+                for m in self.conversation_memory.get_history(session_id, max_messages=8)
+                if m.get("content") and m.get("role") in ("user", "assistant")
+            ]
+
+        # Ignore if the last history entry is duplicate of the current question
+        if conv_history and conv_history[-1]["role"] == "user" and conv_history[-1]["content"] == query:
+            conv_history = conv_history[:-1]
+
         # Handle conversation memory and query reformulation
         original_query = query
-        if session_id:
+        if conv_history:
             # SAFEGUARD: Do not reformulate very long queries (e.g. pasted text)
             if len(query) < 300:
-                query = self._rewrite_followup(session_id, query)
+                query = self._rewrite_followup(session_id, query, history=conv_history)
                 if query != original_query:
                     print(f"[RAGEngine] Query reformulated: '{original_query}' -> '{query}'")
         
         # Safe print for Windows consoles (handles Hindi chars)
         safe_query = query.encode('ascii', 'replace').decode('ascii')
-        print(f"[RAGEngine] Semantic Query: {safe_query} (Lang: {language})")
+        print(f"[RAGEngine] Semantic Query: {safe_query} (Lang: {language}, Prior Turns: {len(conv_history)})")
 
         LONG_TRIGGERS = ["explain", "detail", "elaborate", "analysis", "ingredients"]
         is_long = any(t in query.lower() for t in LONG_TRIGGERS)
 
         # 0. Smart Routing: rule-based first, LLM as optional fallback
-        query_type = self._classify_query(query)
+        # If in an active conversation with prior turns, treat follow-ups as legal context instead of fresh greetings
+        query_type = "legal" if conv_history else self._classify_query(query)
         if query_type == 'simple':
             # Use lightweight model for general chat
             try:
@@ -836,8 +862,13 @@ class RAGEngine:
 
             try:
                 print(f"[RAGEngine] Calling LLM now...", flush=True)
-                # Check cache (keyed by query + language + top sources)
-                cache_key = f"{language}|{query.strip()}|{','.join([c.get('source','') for c in citations[:2]])}"
+                # Check cache (keyed by query + language + top sources + prior context)
+                if conv_history:
+                    last_q = conv_history[-1].get("content", "")[:40]
+                    cache_key = f"{language}|{last_q}|{query.strip()}|{','.join([c.get('source','') for c in citations[:2]])}"
+                else:
+                    cache_key = f"{language}|{query.strip()}|{','.join([c.get('source','') for c in citations[:2]])}"
+
                 if cache_key in self._cache:
                     cached = self._cache[cache_key]
                     return {
@@ -849,10 +880,26 @@ class RAGEngine:
                     }
 
                 max_tokens = 2000 if is_long else 1500
-                raw_answer = self._call_llm([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_query}
-                ], max_tokens=max_tokens, model_override=self.model_legal)
+                llm_messages = [{"role": "system", "content": system_prompt}]
+
+                # Include up to the last 6 turns of conversation history so the LLM remembers previous context
+                if conv_history:
+                    for turn in conv_history[-6:]:
+                        role = turn.get("role", "user")
+                        content = turn.get("content", "")
+                        # Trim long assistant responses to keep prompt lean and prevent token overflow
+                        if role == "assistant" and len(content) > 1000:
+                            content = content[:1000] + "..."
+                        llm_messages.append({"role": role, "content": content})
+
+                # Append the current user query with retrieved legal context
+                llm_messages.append({"role": "user", "content": user_query})
+
+                raw_answer = self._call_llm(
+                    llm_messages,
+                    max_tokens=max_tokens,
+                    model_override=self.model_legal
+                )
                 print(f"[RAGEngine] LLM returned response.", flush=True)
                 try:
                     print(f"\r\n[DEBUG] Raw LLM Answer:\r\n{raw_answer.encode('utf-8', 'replace').decode('utf-8')}\r\n[DEBUG] End Raw Answer\r\n", flush=True)

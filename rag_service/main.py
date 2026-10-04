@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import os
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import re
 import sys
 
@@ -83,7 +83,8 @@ class QueryRequest(BaseModel):
     domain: str = "all"
     arguments_mode: bool = False
     analysis_mode: bool = False
-    session_id: Optional[str] = None  # NEW: For conversation memory
+    session_id: Optional[str] = None  # Session ID for conversation tracking
+    history: Optional[List[Dict[str, Any]]] = None  # Multi-turn conversation messages
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
@@ -135,11 +136,12 @@ async def handle_translate(request: TranslateRequest):
 @app.post("/query")
 async def query_rag(request: QueryRequest):
     try:
-        # Fast path for simple greetings - bypass RAG
+        # Fast path for simple greetings - bypass RAG ONLY on initial messages without prior context
+        has_prior_history = bool(request.history and len(request.history) > 0)
         query_lower = request.query.lower().strip()
         # Increased length limit to catch longer Hindi/Hinglish sentences
         # Whole-word matching and short messages only, so real questions never hit the canned replies
-        if len(query_lower) < 60 and len(query_lower.split()) <= 6:
+        if not has_prior_history and len(query_lower) < 60 and len(query_lower.split()) <= 6:
             if re.search(r"\b(hello|hi|hey|namaste|pranam|halo)\b", query_lower):
                 if request.language == 'hi':
                     return {
@@ -169,7 +171,7 @@ async def query_rag(request: QueryRequest):
             elif any(phrase in query_lower for phrase in ['who are you', 'your name', 'about you', 'kaun ho', 'tumhara naam']):
                 if request.language == 'hi':
                      return {
-                        "answer": "मैं **न्याय (Nyaya AI)** हूँ, एक बुद्धिमान कानूनी सहायक जिसे भारतीय कानून को सरल बनाने के लिए डिज़ाइन किया गया है। मैं सटीक कानूनी मार्गदर्शन प्रदान करने के लिए IPC/BNS, IT अधिनियम, कंपनी अधिनियम आदि जैसे प्रमुख अधिनियमों को कवर करता हूँ।",
+                        "answer": "मैं **न्याय (Nyaya AI)** हूँ, एक बुद्धिमान कानूनी सहायक जिसे भारतीय कानून को सरल बनाने के लिए डिज़ाइन किया गया है। मैं सटीक कानूनी मार्गदर्शन प्रदान करने के लिए IPC/BNS, IT अधिनियम, कंपनी अधिनियम आदि जैसे प्रमुख अधिनियमों को cover करता हूँ।",
                         "citations": [],
                         "related_judgments": []
                     }
@@ -193,7 +195,14 @@ async def query_rag(request: QueryRequest):
                         "related_judgments": []
                     }
         
-        # Add user message to conversation memory if session exists
+        # Sync conversation memory if session exists
+        if request.session_id and request.history:
+            for item in request.history:
+                r = item.get("role")
+                c = item.get("content")
+                if r in ("user", "assistant") and c:
+                    engine.conversation_memory.add_message(request.session_id, r, c)
+
         if request.session_id:
             engine.conversation_memory.add_message(request.session_id, "user", request.query)
         
@@ -202,7 +211,8 @@ async def query_rag(request: QueryRequest):
             request.language, 
             request.arguments_mode, 
             request.analysis_mode,
-            request.session_id  # Pass session_id to engine
+            request.session_id,  # Pass session_id to engine
+            history=request.history  # Pass history directly to engine
         )
         
         if isinstance(response, dict) and "answer" in response:

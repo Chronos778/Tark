@@ -123,5 +123,36 @@ class ErrorMapping(unittest.TestCase):
         self.assertEqual(main.strip_emoji("Hello \U0001F44B there"), "Hello there")
 
 
+class MultiTurnConversationTests(unittest.TestCase):
+    def test_query_request_accepts_history(self):
+        import main
+        req = main.QueryRequest(
+            query="Is it bailable?",
+            history=[
+                {"role": "user", "content": "What is Section 302 of IPC?"},
+                {"role": "assistant", "content": "Section 302 deals with murder."}
+            ]
+        )
+        self.assertEqual(req.query, "Is it bailable?")
+        self.assertEqual(len(req.history), 2)
+        self.assertEqual(req.history[0]["role"], "user")
+
+    def test_followup_rewrite_with_history(self):
+        engine = RAGEngine.__new__(RAGEngine)
+        engine.api_key = "dummy_valid_api_key_12345"
+        engine.model_simple = "dummy"
+        captured = []
+        engine._call_llm = lambda msgs, **kw: captured.append(msgs) or "Rewritten Standalone Query"
+        
+        history = [
+            {"role": "user", "content": "What is IPC 302?"},
+            {"role": "assistant", "content": "IPC 302 covers murder."}
+        ]
+        rewritten = engine._rewrite_followup(None, "And what about the fine?", history=history)
+        self.assertEqual(rewritten, "Rewritten Standalone Query")
+        self.assertTrue(len(captured) > 0)
+        self.assertIn("What is IPC 302?", captured[0][0]["content"])
+
+
 if __name__ == "__main__":
     unittest.main()
