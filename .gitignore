@@ -34,6 +34,8 @@ ENV/
 
 # Databases
 **/chroma_db/
+!rag_service/chroma_db/
+!rag_service/chroma_db/**
 **/faiss_index/
 
 # Build

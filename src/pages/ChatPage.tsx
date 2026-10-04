@@ -5,7 +5,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Loader2, Scale, Zap, BookOpen, Mic, MicOff, Download, Sparkles, Send, Menu, Plus, Trash2, MessageSquare, ExternalLink, Volume2, VolumeX } from "lucide-react";
+import { Loader2, Scale, Zap, BookOpen, Mic, MicOff, Download, Sparkles, Send, Menu, Plus, Trash2, MessageSquare, ExternalLink, Volume2, VolumeX, Languages } from "lucide-react";
 import Header from "@/components/Header";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -53,6 +53,9 @@ interface SpeechRecognitionLike {
 interface Message {
     role: 'user' | 'assistant';
     content: string;
+    originalContent?: string;
+    translatedContent?: string;
+    isTranslated?: boolean;
     judgments?: Judgment[];
     arguments?: Arguments;
     neutral_analysis?: NeutralAnalysis;
@@ -208,18 +211,23 @@ const ChatPage = () => {
         // Create new utterance
         const utterance = new SpeechSynthesisUtterance(text);
         
-        // Select a female voice (prefer Google US English Female or similar)
-        const femaleVoice = voices.find(
-          voice => voice.name.includes('Female') || 
-                   voice.name.includes('Google') && voice.name.includes('US') ||
-                   voice.name.includes('Samantha') || 
-                   voice.name.includes('Zira') ||
-                   voice.name.includes('Microsoft') && voice.name.includes('Female')
-        ) || voices.find(voice => voice.lang.startsWith('en'));
+        const isHindi = /[\u0900-\u097F]/.test(text) || language === 'hi';
+        let chosenVoice: SpeechSynthesisVoice | undefined;
 
-        if (femaleVoice) {
-          utterance.voice = femaleVoice;
-          console.log('🎙️ Using voice:', femaleVoice.name);
+        if (isHindi) {
+          utterance.lang = 'hi-IN';
+          chosenVoice = voices.find(v => v.lang.startsWith('hi') || v.name.toLowerCase().includes('hindi') || v.name.includes('Swara') || v.name.includes('Madhur')) || voices.find(v => v.lang.includes('hi'));
+        } else {
+          utterance.lang = 'en-IN';
+          chosenVoice = voices.find(
+            v => (v.lang.includes('IN') || v.lang.startsWith('en')) &&
+                 (v.name.includes('Female') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Zira') || v.name.includes('Natural'))
+          ) || voices.find(v => v.lang.startsWith('en'));
+        }
+
+        if (chosenVoice) {
+          utterance.voice = chosenVoice;
+          console.log('🎙️ Using voice:', chosenVoice.name);
         }
 
         utterance.rate = 0.85; // Slower, softer pace
@@ -264,13 +272,14 @@ const ChatPage = () => {
     let interval: ReturnType<typeof setInterval>;
     if (isLoading) {
         let i = 0;
+        const list = language === 'hi' ? LOADING_TEXTS_HI : LOADING_TEXTS_EN;
         interval = setInterval(() => {
-            i = (i + 1) % LOADING_TEXTS.length;
-            setLoadingText(LOADING_TEXTS[i]);
+            i = (i + 1) % list.length;
+            setLoadingText(list[i]);
         }, 800);
     }
     return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [isLoading, language]);
 
   const startListening = () => {
     if ('webkitSpeechRecognition' in window) {
@@ -375,6 +384,78 @@ const ChatPage = () => {
     );
   };
 
+  const [translatingIndex, setTranslatingIndex] = useState<number | null>(null);
+
+  const translateMessage = async (index: number, forceTargetLang?: 'en' | 'hi') => {
+    const msg = messages[index];
+    if (!msg || msg.role !== 'assistant') return;
+
+    const isCurrentlyHindi = /[\u0900-\u097F]/.test(msg.content);
+    const target = forceTargetLang || (isCurrentlyHindi ? 'en' : 'hi');
+
+    // If message is already in target language, do nothing
+    if ((target === 'en' && !isCurrentlyHindi) || (target === 'hi' && isCurrentlyHindi)) {
+      return;
+    }
+
+    // If message has cached original/translated content, toggle directly
+    if (msg.originalContent && msg.translatedContent) {
+      setMessages(prev => prev.map((m, i) => {
+        if (i !== index) return m;
+        const nextContent = target === 'en'
+          ? (/[a-zA-Z]/.test(m.originalContent!) ? m.originalContent! : m.translatedContent!)
+          : (/[\u0900-\u097F]/.test(m.originalContent!) ? m.originalContent! : m.translatedContent!);
+        return {
+          ...m,
+          content: nextContent,
+          isTranslated: nextContent !== m.originalContent
+        };
+      }));
+      return;
+    }
+
+    try {
+      setTranslatingIndex(index);
+      const response = await fetch(getApiUrl('/translate'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: msg.content, target_language: target })
+      });
+      const data = await response.json();
+      if (data.translated_text) {
+        setMessages(prev => prev.map((m, i) => {
+          if (i !== index) return m;
+          return {
+            ...m,
+            originalContent: m.originalContent || m.content,
+            translatedContent: data.translated_text,
+            content: data.translated_text,
+            isTranslated: true
+          };
+        }));
+      }
+    } catch (err) {
+      console.error('Translation error:', err);
+    } finally {
+      setTranslatingIndex(null);
+    }
+  };
+
+  // When language is toggled, auto-translate existing assistant messages to match
+  useEffect(() => {
+    if (messages.length === 0) return;
+    const target = language;
+    messages.forEach((m, idx) => {
+      if (m.role === 'assistant') {
+        const isHindi = /[\u0900-\u097F]/.test(m.content);
+        if ((target === 'en' && isHindi) || (target === 'hi' && !isHindi)) {
+          translateMessage(idx, target);
+        }
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language]);
+
   const handleSend = async (text = input) => {
     if (!text.trim()) return;
     
@@ -383,15 +464,8 @@ const ChatPage = () => {
     setInput("");
     setIsLoading(true);
 
-    // Auto-detect language based on input script:
-    // If Devanagari characters are present, automatically switch to Hindi.
-    // Otherwise, respect user's selected language (never revert from hi to en on English text).
-    const isHindiInput = /[\u0900-\u097F]/.test(text);
-    const useLanguage = isHindiInput ? 'hi' : language;
-    
-    if (isHindiInput && language !== 'hi') {
-        setLanguage('hi');
-    }
+    // Respect the user's active language choice (EN or HI)
+    const useLanguage = language;
 
     const currentSessionId = activeConversationId || `conv_${Date.now()}`;
     if (!activeConversationId) {
@@ -695,27 +769,6 @@ const ChatPage = () => {
                                             {formatMarkdown(msg.content)}
                                           </ReactMarkdown>
                                            
-                                           {/* Read Aloud Button */}
-                                           <div className="mt-3 flex items-center gap-2 not-prose">
-                                             <Button
-                                               variant="ghost"
-                                               size="sm"
-                                               onClick={() => handleReadAloud(msg.content, idx)}
-                                               className="h-8 px-3 text-xs text-gray-400 hover:text-white hover:bg-[#1B1916] transition-colors"
-                                             >
-                                               {isSpeaking && speakingMessageIndex === idx ? (
-                                                 <>
-                                                   <VolumeX className="w-3.5 h-3.5 mr-1.5" />
-                                                   Stop Reading
-                                                 </>
-                                               ) : (
-                                                 <>
-                                                   <Volume2 className="w-3.5 h-3.5 mr-1.5" />
-                                                   Read Aloud
-                                                 </>
-                                               )}
-                                             </Button>
-                                           </div>
                                            
                                            {/* Analysis Cards */}
                                           {(msg.neutral_analysis || msg.arguments || (msg.judgments && msg.judgments.length > 0)) && (
@@ -786,11 +839,51 @@ const ChatPage = () => {
                                               </div>
                                           )}
                                            
-                                           <div className="mt-4 flex gap-2 justify-start opacity-70 hover:opacity-100 transition-opacity">
-                                              <Button variant="ghost" size="sm" className="h-6 text-[10px] text-gray-500 hover:text-gray-300 px-2" onClick={() => exportPDF(msg, [...messages.slice(0, idx)].reverse().find((m) => m.role === "user")?.content ?? "")}>
-                                                  <Download className="h-3 w-3 mr-1.5" /> Save PDF
-                                              </Button>
-                                          </div>
+                                           <div className="mt-4 flex flex-wrap items-center gap-2 justify-start opacity-75 hover:opacity-100 transition-opacity not-prose">
+                                               <Button 
+                                                   variant="ghost" 
+                                                   size="sm" 
+                                                   className="h-7 text-xs text-gray-400 hover:text-white hover:bg-[#1B1916] px-2.5 rounded-lg"
+                                                   onClick={() => translateMessage(idx)}
+                                                   disabled={translatingIndex === idx}
+                                                   title="Translate between English and Hindi"
+                                               >
+                                                   <Languages className="h-3.5 w-3.5 mr-1.5 text-saffron" />
+                                                   {translatingIndex === idx 
+                                                       ? (language === 'hi' ? 'अनुवाद हो रहा है...' : 'Translating...')
+                                                       : (/[\u0900-\u097F]/.test(msg.content) ? 'Translate to English' : 'हिन्दी में अनुवाद')
+                                                   }
+                                               </Button>
+                                               
+                                               <Button 
+                                                   variant="ghost" 
+                                                   size="sm" 
+                                                   className="h-7 text-xs text-gray-400 hover:text-white hover:bg-[#1B1916] px-2.5 rounded-lg" 
+                                                   onClick={() => handleReadAloud(msg.content, idx)}
+                                               >
+                                                   {isSpeaking && speakingMessageIndex === idx ? (
+                                                       <>
+                                                           <VolumeX className="h-3.5 w-3.5 mr-1.5 text-saffron" />
+                                                           {language === 'hi' ? 'रोकें' : 'Stop Reading'}
+                                                       </>
+                                                   ) : (
+                                                       <>
+                                                           <Volume2 className="h-3.5 w-3.5 mr-1.5" />
+                                                           {language === 'hi' ? 'बोलकर सुनें' : 'Read Aloud'}
+                                                       </>
+                                                   )}
+                                               </Button>
+
+                                               <Button 
+                                                   variant="ghost" 
+                                                   size="sm" 
+                                                   className="h-7 text-xs text-gray-400 hover:text-white hover:bg-[#1B1916] px-2.5 rounded-lg" 
+                                                   onClick={() => exportPDF(msg, [...messages.slice(0, idx)].reverse().find((m) => m.role === "user")?.content ?? "")}
+                                               >
+                                                   <Download className="h-3.5 w-3.5 mr-1.5" /> 
+                                                   {language === 'hi' ? 'पीडीएफ सहेजें' : 'Save PDF'}
+                                               </Button>
+                                           </div>
                                       </div>
                                   ) : (
                                       <p>{msg.content}</p>

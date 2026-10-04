@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -25,12 +26,31 @@ from rag_engine import RAGEngine
 base_path = pathlib.Path(__file__).parent.parent
 load_dotenv(dotenv_path=base_path / ".env")
 
-app = FastAPI(title="Nyaya AI RAG Service")
+engine = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global engine
+    print("[Main] Initializing RAG Engine...", flush=True)
+    engine = RAGEngine()
+    print("[Main] RAG Engine Initialized", flush=True)
+    yield
+
+app = FastAPI(title="Nyaya AI RAG Service", lifespan=lifespan)
+
+# Setup CORS: If origin is '*', allow_credentials must be False to adhere to W3C spec
+_allowed_env = os.getenv("ALLOWED_ORIGINS", "*").strip()
+if _allowed_env and _allowed_env != "*":
+    _origins = [o.strip() for o in _allowed_env.split(",") if o.strip()]
+    _allow_creds = True
+else:
+    _origins = ["*"]
+    _allow_creds = False
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()],
-    allow_credentials=True,
+    allow_origins=_origins,
+    allow_credentials=_allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -38,8 +58,6 @@ app.add_middleware(
 from contact import router as contact_router
 
 app.include_router(contact_router)
-
-engine = None
 
 _EMOJI = re.compile("[🀀-🫿☀-➿⭐⬆✅❌️‍]+ ?")
 
@@ -57,12 +75,7 @@ def strip_emoji(value):
     """Remove emoji from model output so replies stay professional."""
     return _EMOJI.sub("", value) if isinstance(value, str) else value
 
-@app.on_event("startup")
-async def startup_event():
-    global engine
-    print("[Main] Initializing RAG Engine...", flush=True)
-    engine = RAGEngine()
-    print("[Main] RAG Engine Initialized", flush=True)
+# RAG Engine initialized via lifespan
 
 class QueryRequest(BaseModel):
     query: str
@@ -101,6 +114,20 @@ async def generate_draft(request: DraftRequest):
         raise
     except Exception as e:
         print(f"[Main] Error generating draft: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+class TranslateRequest(BaseModel):
+    text: str
+    target_language: str = "en"
+
+@app.post("/translate")
+async def handle_translate(request: TranslateRequest):
+    try:
+        translated = engine.translate_text(request.text, request.target_language)
+        return {"translated_text": strip_emoji(translated)}
+    except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))

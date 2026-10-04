@@ -122,12 +122,48 @@ class RAGEngine:
             self.collection = self.db_client.get_or_create_collection(name=collection_name, embedding_function=self.ef)
             print(f"[RAGEngine] Connected to Vector DB [{collection_name}]. ({self.collection.count()} docs)")
             
-            # Simple check: If collection is empty, we would normally ingest here.
-            # For now, we prioritize stability and will let the user upload files.
+            if self.collection.count() == 0:
+                print("[RAGEngine] Empty collection detected. Auto-seeding bundled legal statutes...", flush=True)
+                self._seed_default_data()
             
         except Exception as e:
              print(f"[RAGEngine] ⚠️ Vector DB Connection Error: {e}")
              self.collection = None
+
+    def _seed_default_data(self):
+        """Auto-seed basic legal statutes if the database is empty on deployment."""
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            data_dir = os.path.join(base_dir, "data")
+            mapping_file = os.path.join(data_dir, "ipc_bns_mapping.json")
+            if os.path.exists(mapping_file) and self.collection:
+                with open(mapping_file, "r", encoding="utf-8") as f:
+                    statutes = json.load(f)
+                docs, metas, ids = [], [], []
+                for s in statutes:
+                    bns_num = str(s.get("bns", "")).strip()
+                    ipc_num = str(s.get("ipc", "")).strip()
+                    topic = s.get("topic", "")
+                    bns_text = s.get("text_bns", "")
+                    ipc_text = s.get("text_ipc", "")
+                    if bns_num:
+                        docs.append(f"Statute: Bharatiya Nyaya Sanhita (BNS) Section {bns_num}. Topic: {topic}. Description: {bns_text}")
+                        metas.append({"type": "statute", "source": "Bharatiya Nyaya Sanhita, 2023", "law": "BNS", "bns_section": bns_num, "topic": topic})
+                        ids.append(f"bns::{bns_num}")
+                    if ipc_num:
+                        docs.append(f"Statute: Indian Penal Code (IPC) Section {ipc_num}. Topic: {topic}. Description: {ipc_text}")
+                        metas.append({"type": "statute", "source": "Indian Penal Code, 1860", "law": "IPC", "ipc_section": ipc_num, "topic": topic})
+                        ids.append(f"ipc::{ipc_num}")
+                if docs:
+                    for i in range(0, len(docs), 250):
+                        self.collection.add(
+                            documents=docs[i:i+250],
+                            metadatas=metas[i:i+250],
+                            ids=ids[i:i+250]
+                        )
+                print(f"[RAGEngine] Auto-seeded {len(docs)} statutes into collection.", flush=True)
+        except Exception as e:
+            print(f"[RAGEngine] Auto-seed warning: {e}", flush=True)
 
     _FOLLOWUP_LEADS = (
         "and ", "but ", "also ", "then ", "so ", "what if", "what about", "how about", "why", "how so",
@@ -203,13 +239,14 @@ class RAGEngine:
     @staticmethod
     def _trim_runaway(text: str, max_chars: int = 7000) -> str:
         """Drop immediately repeated lines and cap length, in case the model loops."""
+        delim = "\r\n" if "\r\n" in text else "\n"
         out = []
-        for line in text.split("\r\n"):
+        for line in text.splitlines():
             if out and line.strip() and line.strip() == out[-1].strip():
                 continue
             out.append(line)
-        trimmed = "\r\n".join(out)
-        return trimmed if len(trimmed) <= max_chars else trimmed[:max_chars].rsplit("\r\n", 1)[0]
+        trimmed = delim.join(out)
+        return trimmed if len(trimmed) <= max_chars else trimmed[:max_chars].rsplit(delim, 1)[0]
 
     def _classify_query(self, query: str) -> str:
         """Classify query as 'simple' or 'legal' for optimization."""
@@ -741,6 +778,14 @@ class RAGEngine:
                     "- Act names can be mentioned with their standard Hindi and English names (e.g., भारतीय न्याय संहिता, 2023 / BNS; संपत्ति अंतरण अधिनियम, 1882 / Transfer of Property Act).\r\n"
                     "- Do NOT output the main explanation in English."
                 )
+            elif language == "en":
+                system_prompt += (
+                    "\r\n\r\nCRITICAL LANGUAGE MANDATE:\r\n"
+                    "- The user has selected English. You MUST generate the ENTIRE response strictly in English.\r\n"
+                    "- Even if the user prompt is written in Hindi/Devanagari, or previous conversation history contains Hindi, your response MUST be in English.\r\n"
+                    "- Use English for all explanations, analyses, and section headings (e.g., 'Direct Answer', 'Key Provisions / Legal Framework', 'Formalities & Procedural Requirements', 'Relevant Acts & Sources').\r\n"
+                    "- Do NOT output the explanation in Hindi or Devanagari script."
+                )
 
             if is_long:
                 system_prompt += (
@@ -769,6 +814,8 @@ class RAGEngine:
             user_query = f"Context:\r\n{context_text}\r\n\r\nQuery: {query}\r\n"
             if language == "hi":
                 user_query += "\r\n\r\n(REMINDER: The user selected Hindi mode. You MUST respond strictly in Hindi / Devanagari script.)"
+            elif language == "en":
+                user_query += "\r\n\r\n(REMINDER: The user selected English mode. You MUST respond strictly in English.)"
             
             # Append instructions to User Prompt for Recency Bias
             if analysis_mode:
@@ -973,3 +1020,24 @@ class RAGEngine:
         except Exception as e:
             print(f"[RAGEngine] Drafting failed: {e}")
             return f"Error: Could not generate draft. Reason: {str(e)}"
+
+    def translate_text(self, text: str, target_language: str = "en") -> str:
+        """Translate legal text between English and Hindi, preserving formatting and legal fidelity."""
+        if not text or not text.strip():
+            return ""
+        target_name = "English" if target_language == "en" else "Hindi (Devanagari script)"
+        prompt = (
+            f"You are an expert Indian legal translator.\n"
+            f"Translate the following Indian legal text accurately and faithfully into {target_name}.\n"
+            f"RULES:\n"
+            f"1. Preserve all Markdown elements: headings (#, ##, ###), bold text, bullet points, numbers, and especially table syntax (| col | col |).\n"
+            f"2. Translate section headings properly (e.g. 'Direct Answer' <-> 'सीधा उत्तर', 'Key Provisions' <-> 'मुख्य कानूनी प्रावधान', 'Punishment/Outcome' <-> 'दंड/परिणाम', 'Sources' <-> 'स्रोत').\n"
+            f"3. Keep statutory section numbers intact (e.g. 'Section 103 BNS', 'Section 302 IPC').\n"
+            f"4. Output ONLY the translated legal content. Do not include introductory conversational text (such as 'Here is the translation:') or concluding comments.\n\n"
+            f"Text to translate:\n{text}"
+        )
+        try:
+            return self._call_llm([{"role": "user", "content": prompt}], max_tokens=2500).strip()
+        except Exception as e:
+            print(f"[RAGEngine] Translation error: {e}")
+            return text
