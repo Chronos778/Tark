@@ -34,7 +34,16 @@ export interface LawSection {
 // Merge Logic: Prioritize Curated > Filtered Raw (only with IPC text)
 const getMergedData = (): LawSection[] => {
     // 1. Start with high-quality curated data and map to LawSection interface
-    const curatedDataAny = curatedData as any[];
+    const curatedDataAny = curatedData as Array<{
+        bns_title: string;
+        bns_section: string;
+        ipc_section?: string | null;
+        ipc_title?: string;
+        change_type?: string;
+        summary_of_change?: string;
+        text_ipc?: string;
+        text_bns?: string;
+    }>;
     const curated: LawSection[] = curatedDataAny.map(item => ({
         topic: item.bns_title,
         bns: item.bns_section,
@@ -74,7 +83,7 @@ export function LawSearch({ onSelect, className }: LawSearchProps) {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <div className="relative group">
-            <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500/20 to-blue-500/20 rounded-xl blur opacity-30 group-hover:opacity-60 transition duration-300"></div>
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-saffron/20 to-saffron/5 rounded-xl blur opacity-30 group-hover:opacity-60 transition duration-300"></div>
             <Button
             variant="outline"
             role="combobox"
@@ -86,7 +95,7 @@ export function LawSearch({ onSelect, className }: LawSearchProps) {
             >
             <div className="flex items-center gap-3 w-full overflow-hidden">
                 <div className="p-1.5 rounded-lg bg-white/5 border border-white/5">
-                    <Search className="h-4 w-4 text-purple-400" />
+                    <Search className="h-4 w-4 text-saffron" />
                 </div>
                 {selectedSection ? (
                     <div className="flex flex-col items-start truncate">
@@ -130,7 +139,7 @@ export function LawSearch({ onSelect, className }: LawSearchProps) {
                 >
                   <Check
                     className={cn(
-                      "mr-3 h-4 w-4 text-purple-500",
+                      "mr-3 h-4 w-4 text-saffron",
                       value === section.bns ? "opacity-100" : "opacity-0"
                     )}
                   />

@@ -1,13 +1,16 @@
+# Run the whole stack locally:  docker compose -f deployment/docker-compose.yml --env-file .env up --build
 services:
   gateway:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.gateway
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
     ports:
       - "3001:3001"
     environment:
       - RAG_SERVICE_URL=http://rag:8000
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     depends_on:
       - rag
 
@@ -18,8 +21,16 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_API_KEYS=${GROQ_API_KEYS:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
+      - CONTACT_NOTIFY_TO=${CONTACT_NOTIFY_TO:-}
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM=${SMTP_FROM:-}
     volumes:
       - ../rag_service/chroma_db:/app/rag_service/chroma_db
       - ../rag_service/data:/app/rag_service/data

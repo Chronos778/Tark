@@ -4,6 +4,9 @@ const dotenv = require('dotenv');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const rateLimit = require('express-rate-limit');
 
+const path = require('path');
+
+dotenv.config({ path: path.join(__dirname, '../.env') });
 dotenv.config();
 
 const app = express();
@@ -43,8 +46,6 @@ app.get('/health', (req, res) => {
 
 // Proxy Configuration for RAG Service
 const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL || 'http://localhost:8000';
-
-const path = require('path');
 
 // API Routes Proxy
 app.use('/api/v1', createProxyMiddleware({ 

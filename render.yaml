@@ -1,22 +1,42 @@
+# Render blueprint: a Python RAG service plus a Node gateway that serves the built frontend
+# and proxies /api/v1 to it (with rate limiting that protects the LLM quota).
 services:
-  # 1. The RAG Service (Python FastAPI with OCR Support)
+  # 1. The RAG service (FastAPI, ChromaDB, OCR)
   - type: web
-    name: tark-rag
+    name: nyaya-rag
     env: docker
     dockerContext: .
     dockerfilePath: deployment/Dockerfile.rag
     plan: free
-    # Force single worker to save RAM
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
     envVars:
-      - key: NVIDIA_API_KEY
+      - key: GROQ_API_KEY
         sync: false
-      - key: OPENROUTER_API_KEY
+      - key: GROQ_API_KEYS   # optional, comma-separated extra keys tried when one is rate limited
+        sync: false
+      - key: ALLOWED_ORIGINS  # the gateway's public URL, e.g. https://nyaya-gateway.onrender.com
+        sync: false
+      # Contact form: stored in Supabase with the server-side key (never exposed to the browser)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      # Optional email alert for new contact messages
+      - key: CONTACT_NOTIFY_TO
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
         sync: false
 
-  # 2. The API Gateway & Frontend (Node.js)
+  # 2. The API gateway and frontend (Node)
   - type: web
-    name: tark-gateway
+    name: nyaya-gateway
     env: docker
     dockerContext: .
     dockerfilePath: deployment/Dockerfile.gateway
@@ -24,12 +44,15 @@ services:
     envVars:
       - key: RAG_SERVICE_URL
         fromService:
-          name: tark-rag
+          name: nyaya-rag
           type: web
-          property: host
+          property: hostport
       - key: PORT
         value: 3001
       - key: NODE_ENV
         value: production
-      - key: OPENROUTER_API_KEY
+      # Baked into the frontend at build time (publishable key only; never the secret key)
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
         sync: false

@@ -1,5 +1,6 @@
 import type { Config } from "tailwindcss";
 import tailwindAnimate from "tailwindcss-animate";
+import tailwindTypography from "@tailwindcss/typography";
 
 export default {
   darkMode: ["class"],
@@ -17,8 +18,15 @@ export default {
       fontFamily: {
         serif: ["Bricolage Grotesque", "serif"],
         sans: ["Inter", "system-ui", "sans-serif"],
+        display: ["Newsreader", "Georgia", "serif"],
+        tag: ["JetBrains Mono", "ui-monospace", "SFMono-Regular", "Consolas", "monospace"],
+        deva: ["Noto Serif Devanagari", "Nirmala UI", "serif"],
       },
       colors: {
+        // Landing page palette: warm ink ground, ivory text, saffron accent
+        ink: { DEFAULT: "#0B0A09", 2: "#131210", 3: "#1B1916" },
+        bone: { DEFAULT: "#F1EADB", dim: "#A69E8E" },
+        saffron: "#EBA83B",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -101,5 +109,5 @@ export default {
       },
     },
   },
-  plugins: [tailwindAnimate, require("@tailwindcss/typography")],
+  plugins: [tailwindAnimate, tailwindTypography],
 } satisfies Config;

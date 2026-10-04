@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Inter:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=JetBrains+Mono:wght@400;500&family=Noto+Serif+Devanagari:wght@400;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -35,6 +35,27 @@
     --ring: 240 4.9% 83.9%;
 
     --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  html,
+  body {
+    background-color: #0b0a09;
+  }
+  h1,
+  h2 {
+    font-family: "Newsreader", Georgia, serif;
+    letter-spacing: -0.015em;
+  }
+}
+
+@layer base {
+  /* In-page anchors (landing nav) glide, unless the user prefers reduced motion */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 }
 

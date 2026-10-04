@@ -4,6 +4,9 @@ import { useState, useEffect, useRef, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Scale, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/lib/supabase';
+import { useSession } from '@/hooks/use-session';
+import { useLanguage } from '@/hooks/use-language';
 
 const AnimatedNavLink = ({ href, children, isActive }: { href: string; children: ReactNode; isActive?: boolean }) => {
   const defaultTextColor = isActive ? 'text-white font-medium' : 'text-gray-400';
@@ -24,28 +27,15 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
   const [isOpen, setIsOpen] = useState(false);
   const [headerShapeClass, setHeaderShapeClass] = useState('rounded-full');
   const [isHovered, setIsHovered] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const { session } = useSession();
+  const { language, setLanguage } = useLanguage();
+  const isLoggedIn = !!session;
   const shapeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Check authentication status
-  useEffect(() => {
-    const checkAuth = () => {
-      const authStatus = localStorage.getItem('legalai_auth');
-      setIsLoggedIn(authStatus === 'true');
-    };
-    
-    checkAuth();
-    // Listen for storage changes (for multi-tab sync)
-    window.addEventListener('storage', checkAuth);
-    return () => window.removeEventListener('storage', checkAuth);
-  }, []);
-
-  const handleLogout = () => {
-    localStorage.removeItem('legalai_auth');
-    localStorage.removeItem('legalai_user');
-    setIsLoggedIn(false);
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     navigate('/login');
   };
 
@@ -74,11 +64,9 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
   }, [isOpen]);
 
   const logoElement = (
-    <Link to="/" className="relative flex items-center justify-center gap-2 group">
-        <div className="w-9 h-9 rounded-full overflow-hidden border border-white/20 shadow-lg group-hover:shadow-purple-500/50 transition-all">
-             <img src="/logo.jpg" alt="LegalAi Logo" className="w-full h-full object-cover" />
-        </div>
-        <span className="font-serif font-bold text-white hidden sm:block text-xl tracking-tight">LegalAi</span>
+    <Link to="/" className="relative flex items-center justify-center gap-2.5 group" aria-label="Nyaya home">
+        <span aria-hidden="true" className="grid size-8 place-items-center rounded-md border border-saffron/50 bg-saffron/10 font-display text-xl leading-none text-saffron">§</span>
+        <span className="font-display font-medium text-bone hidden sm:block text-2xl tracking-tight">Nyaya</span>
     </Link>
   );
 
@@ -90,12 +78,14 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
     { label: 'Assistant', href: '/chat' },
   ];
 
-  const sidebarVisible = autoHide ? (isHovered || isOpen) : true;
+  // Auto-hide relies on hover, which touch screens do not have; keep the bar visible there
+  const canHover = typeof window !== 'undefined' && window.matchMedia('(hover: hover)').matches;
+  const sidebarVisible = autoHide && canHover ? (isHovered || isOpen) : true;
 
   return (
     <>
       {/* Trigger Zone for Auto-Hide - Centered Area Only */}
-      {autoHide && (
+      {autoHide && canHover && (
         <div 
             className="fixed top-0 left-1/2 -translate-x-1/2 w-[60%] sm:w-[500px] h-6 z-50 bg-transparent"
             onMouseEnter={() => setIsHovered(true)}
@@ -109,7 +99,7 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
                        flex flex-col items-center
                        pl-4 pr-4 py-3 backdrop-blur-md
                        ${headerShapeClass}
-                       border border-white/10 bg-black/50
+                       border border-bone/10 bg-ink/70
                        w-[calc(100%-2rem)] sm:w-auto min-w-[320px] sm:min-w-[800px]
                        transition-all duration-300 ease-in-out shadow-2xl
                        ${autoHide && !sidebarVisible ? '-translate-y-[150%] opacity-0 pointer-events-none' : 'translate-y-0 opacity-100 pointer-events-auto'}
@@ -130,10 +120,36 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
         </nav>
 
         <div className="hidden sm:flex items-center gap-2 sm:gap-3">
+           {/* Language Selector */}
+           <div className="flex items-center bg-[#131210] border border-white/10 rounded-full p-0.5 text-xs shadow-inner">
+             <button
+               type="button"
+               onClick={() => setLanguage('en')}
+               className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                 language === 'en'
+                   ? 'bg-saffron text-ink font-bold shadow-sm'
+                   : 'text-gray-400 hover:text-white'
+               }`}
+             >
+               EN
+             </button>
+             <button
+               type="button"
+               onClick={() => setLanguage('hi')}
+               className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
+                 language === 'hi'
+                   ? 'bg-saffron text-ink font-bold shadow-sm'
+                   : 'text-gray-400 hover:text-white'
+               }`}
+             >
+               HI
+             </button>
+           </div>
+
            {isLoggedIn ? (
              <button 
                onClick={handleLogout}
-               className="px-5 py-2 text-xs font-medium text-black bg-white rounded-full hover:bg-gray-200 transition-colors duration-200 shadow-[0_0_10px_rgba(255,255,255,0.2)] flex items-center gap-2"
+               className="px-5 py-2 text-xs font-medium text-ink bg-saffron rounded-full hover:bg-saffron/85 transition-colors duration-200  flex items-center gap-2"
              >
                <LogOut className="w-3.5 h-3.5" />
                Logout
@@ -146,7 +162,7 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
                    </button>
                </Link>
                <Link to="/chat">
-                   <button className="px-5 py-2 text-xs font-medium text-black bg-white rounded-full hover:bg-gray-200 transition-colors duration-200 shadow-[0_0_10px_rgba(255,255,255,0.2)]">
+                   <button className="px-5 py-2 text-xs font-medium text-ink bg-saffron rounded-full hover:bg-saffron/85 transition-colors duration-200 ">
                       Launch App
                    </button>
                </Link>
@@ -173,10 +189,35 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
           ))}
         </nav>
         <div className="flex flex-col items-center space-y-4 mt-4 w-full pb-2">
+           {/* Mobile Language Selector */}
+           <div className="flex items-center justify-center bg-[#131210] border border-white/10 rounded-full p-1 text-xs w-full max-w-[200px]">
+             <button
+               type="button"
+               onClick={() => setLanguage('en')}
+               className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                 language === 'en'
+                   ? 'bg-saffron text-ink font-bold shadow-sm'
+                   : 'text-gray-400 hover:text-white'
+               }`}
+             >
+               English
+             </button>
+             <button
+               type="button"
+               onClick={() => setLanguage('hi')}
+               className={`flex-1 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                 language === 'hi'
+                   ? 'bg-saffron text-ink font-bold shadow-sm'
+                   : 'text-gray-400 hover:text-white'
+               }`}
+             >
+               हिन्दी (HI)
+             </button>
+           </div>
            {isLoggedIn ? (
              <button 
                onClick={handleLogout}
-               className="w-full px-4 py-2 text-sm font-semibold text-black bg-white rounded-full hover:bg-gray-200 transition-colors flex items-center justify-center gap-2"
+               className="w-full px-4 py-2 text-sm font-semibold text-ink bg-saffron rounded-full hover:bg-saffron/85 transition-colors flex items-center justify-center gap-2"
              >
                <LogOut className="w-4 h-4" />
                Logout
@@ -189,7 +230,7 @@ export function Navbar({ autoHide = false }: { autoHide?: boolean }) {
                    </button>
                </Link>
                <Link to="/chat" className="w-full">
-                   <button className="w-full px-4 py-2 text-sm font-semibold text-black bg-white rounded-full hover:bg-gray-200 transition-colors">
+                   <button className="w-full px-4 py-2 text-sm font-semibold text-ink bg-saffron rounded-full hover:bg-saffron/85 transition-colors">
                       Launch App
                    </button>
                </Link>

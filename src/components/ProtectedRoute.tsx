@@ -1,27 +1,18 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
+import { useSession } from "@/hooks/use-session";
 
-interface ProtectedRouteProps {
-  children: React.ReactNode;
-}
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { session, loading } = useSession();
+  const location = useLocation();
 
-const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const isAuthenticated = localStorage.getItem("legalai_auth") === "true";
-    
-    if (!isAuthenticated) {
-      navigate("/login");
-    }
-  }, [navigate]);
-
-  const isAuthenticated = localStorage.getItem("legalai_auth") === "true";
-  
-  if (!isAuthenticated) {
-    return null;
+  if (loading) {
+    return (
+      <div className="grid min-h-screen place-items-center bg-ink text-sm text-bone-dim" role="status">
+        Checking your session…
+      </div>
+    );
   }
-
+  if (!session) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   return <>{children}</>;
 };
 

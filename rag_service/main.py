@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import os
+from typing import Optional
+import re
 import sys
 
 # Ensure UTF-8 output on Windows terminals
@@ -23,17 +25,37 @@ from rag_engine import RAGEngine
 base_path = pathlib.Path(__file__).parent.parent
 load_dotenv(dotenv_path=base_path / ".env")
 
-app = FastAPI(title="Tark AI RAG Service")
+app = FastAPI(title="Nyaya AI RAG Service")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+from contact import router as contact_router
+
+app.include_router(contact_router)
+
 engine = None
+
+_EMOJI = re.compile("[🀀-🫿☀-➿⭐⬆✅❌️‍]+ ?")
+
+BUSY_MESSAGE = "The AI service is busy right now. Please wait a few seconds and try again."
+
+
+def is_engine_error(text) -> bool:
+    """True when the engine returned an error string instead of real content."""
+    return isinstance(text, str) and (
+        text.startswith("Error") or text.startswith("Failed to summarize") or "API Error" in text[:200]
+    )
+
+
+def strip_emoji(value):
+    """Remove emoji from model output so replies stay professional."""
+    return _EMOJI.sub("", value) if isinstance(value, str) else value
 
 @app.on_event("startup")
 async def startup_event():
@@ -48,7 +70,7 @@ class QueryRequest(BaseModel):
     domain: str = "all"
     arguments_mode: bool = False
     analysis_mode: bool = False
-    session_id: str = None  # NEW: For conversation memory
+    session_id: Optional[str] = None  # NEW: For conversation memory
 
 @app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
@@ -72,7 +94,11 @@ async def generate_draft(request: DraftRequest):
             details=request.details,
             language=request.language
         )
-        return {"draft": draft_text}
+        if is_engine_error(draft_text):
+            raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
+        return {"draft": strip_emoji(draft_text)}
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[Main] Error generating draft: {e}")
         import traceback
@@ -85,56 +111,57 @@ async def query_rag(request: QueryRequest):
         # Fast path for simple greetings - bypass RAG
         query_lower = request.query.lower().strip()
         # Increased length limit to catch longer Hindi/Hinglish sentences
-        if len(query_lower) < 60:
-            if any(word in query_lower for word in ['hello', 'hi', 'hey', 'namaste', 'pranam', 'halo']):
+        # Whole-word matching and short messages only, so real questions never hit the canned replies
+        if len(query_lower) < 60 and len(query_lower.split()) <= 6:
+            if re.search(r"\b(hello|hi|hey|namaste|pranam|halo)\b", query_lower):
                 if request.language == 'hi':
                     return {
-                        "answer": "नमस्ते! 👋 मैं **तर्क (Tark AI)** हूँ, आपका भारतीय कानूनी सहायक।\n\nमेरी विशेषज्ञता:\n- 🏛️ **आपराधिक कानून** (IPC/BNS)\n- 💻 **आईटी और साइबर कानून**\n- 🏢 **कॉर्पोरेट कानून**\n- 🛡️ **उपभोक्ता कानून**\n- 🚗 **परिवहन कानून**\n\nआज मैं आपकी कैसे मदद कर सकता हूँ?",
+                        "answer": "नमस्ते! मैं **न्याय (Nyaya AI)** हूँ, आपका भारतीय कानूनी सहायक।\n\nमेरी विशेषज्ञता:\n- **आपराधिक कानून** (IPC/BNS)\n- **आईटी और साइबर कानून**\n- **कॉर्पोरेट कानून**\n- **उपभोक्ता कानून**\n- **परिवहन कानून**\n\nआज मैं आपकी कैसे मदद कर सकता हूँ?",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "Hello! 👋 I'm **Tark AI**, your Indian legal assistant.\n\nI specialize in:\n- 🏛️ **Criminal Law** (IPC/BNS)\n- 💻 **IT & Cyber Law**\n- 🏢 **Corporate Law**\n- 🛡️ **Consumer Law**\n- 🚗 **Transport Law**\n\nHow can I help you today?",
+                        "answer": "Hello! I'm **Nyaya AI**, your Indian legal assistant.\n\nI specialize in:\n- **Criminal Law** (IPC/BNS)\n- **IT & Cyber Law**\n- **Corporate Law**\n- **Consumer Law**\n- **Transport Law**\n\nHow can I help you today?",
                         "citations": [],
                         "related_judgments": []
                     }
             elif any(phrase in query_lower for phrase in ['how can you help', 'what do you do', 'what can you do', 'help me', 'madad', 'sahayata', 'kya tum', 'sakte ho']):
                 if request.language == 'hi':
                     return {
-                        "answer": "मैं **तर्क (Tark AI)** हूँ, और मैं आपकी मदद कर सकता हूँ:\n\n1. **कानूनी प्रश्न**: विशिष्ट कानूनों के बारे में पूछें (जैसे, 'चोरी की सजा', 'कंपनी कैसे रजिस्टर करें')\n2. **तुलना**: पुराने बनाम नए कानूनों की तुलना करें (जैसे, 'IPC 302 बनाम BNS 103')\n3. **दस्तावेज़ सारांश**: सारांश के लिए कानूनी दस्तावेज़ अपलोड करें\n4. **केस लॉ**: ऐतिहासिक फैसलों पर जानकारी प्राप्त करें\n\nबस अपना प्रश्न टाइप करें!",
+                        "answer": "मैं **न्याय (Nyaya AI)** हूँ, और मैं आपकी मदद कर सकता हूँ:\n\n1. **कानूनी प्रश्न**: विशिष्ट कानूनों के बारे में पूछें (जैसे, 'चोरी की सजा', 'कंपनी कैसे रजिस्टर करें')\n2. **तुलना**: पुराने बनाम नए कानूनों की तुलना करें (जैसे, 'IPC 302 बनाम BNS 103')\n3. **दस्तावेज़ सारांश**: सारांश के लिए कानूनी दस्तावेज़ अपलोड करें\n4. **केस लॉ**: ऐतिहासिक फैसलों पर जानकारी प्राप्त करें\n\nबस अपना प्रश्न टाइप करें!",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "I'm **Tark AI**, and I can help you with:\n\n1. **Legal Queries**: Ask about specific laws (e.g., 'punishment for theft', 'how to register a company')\n2. **Comparisons**: Compare old vs. new laws (e.g., 'IPC 302 vs BNS 103')\n3. **Document Summarization**: Upload legal docs for a summary\n4. **Case Law**: Get information on landmark judgments\n\nJust type your question!",
+                        "answer": "I'm **Nyaya AI**, and I can help you with:\n\n1. **Legal Queries**: Ask about specific laws (e.g., 'punishment for theft', 'how to register a company')\n2. **Comparisons**: Compare old vs. new laws (e.g., 'IPC 302 vs BNS 103')\n3. **Document Summarization**: Upload legal docs for a summary\n4. **Case Law**: Get information on landmark judgments\n\nJust type your question!",
                         "citations": [],
                         "related_judgments": []
                     }
             elif any(phrase in query_lower for phrase in ['who are you', 'your name', 'about you', 'kaun ho', 'tumhara naam']):
                 if request.language == 'hi':
                      return {
-                        "answer": "मैं **तर्क (Tark AI)** हूँ, एक बुद्धिमान कानूनी सहायक जिसे भारतीय कानून को सरल बनाने के लिए डिज़ाइन किया गया है। मैं सटीक कानूनी मार्गदर्शन प्रदान करने के लिए IPC/BNS, IT अधिनियम, कंपनी अधिनियम आदि जैसे प्रमुख अधिनियमों को कवर करता हूँ।",
+                        "answer": "मैं **न्याय (Nyaya AI)** हूँ, एक बुद्धिमान कानूनी सहायक जिसे भारतीय कानून को सरल बनाने के लिए डिज़ाइन किया गया है। मैं सटीक कानूनी मार्गदर्शन प्रदान करने के लिए IPC/BNS, IT अधिनियम, कंपनी अधिनियम आदि जैसे प्रमुख अधिनियमों को कवर करता हूँ।",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "I am **Tark AI**, an intelligent legal assistant designed to simplify Indian law. I cover major acts like IPC/BNS, IT Act, Companies Act, and more to provide accurate legal guidance.",
+                        "answer": "I am **Nyaya AI**, an intelligent legal assistant designed to simplify Indian law. I cover major acts like IPC/BNS, IT Act, Companies Act, and more to provide accurate legal guidance.",
                         "citations": [],
                         "related_judgments": []
                     }
             elif any(word in query_lower for word in ['thank', 'thanks', 'dhanyavad', 'shukriya']):
                 if request.language == 'hi':
                     return {
-                        "answer": "आपका स्वागत है! 😊 अगर आपके पास और कानूनी प्रश्न हैं तो बेझिझक पूछें।",
+                        "answer": "आपका स्वागत है! अगर आपके पास और कानूनी प्रश्न हैं तो बेझिझक पूछें।",
                         "citations": [],
                         "related_judgments": []
                     }
                 else:
                     return {
-                        "answer": "You're welcome! 😊 Feel free to ask if you have more legal questions.",
+                        "answer": "You're welcome! Feel free to ask if you have more legal questions.",
                         "citations": [],
                         "related_judgments": []
                     }
@@ -151,11 +178,15 @@ async def query_rag(request: QueryRequest):
             request.session_id  # Pass session_id to engine
         )
         
-        # Add assistant response to conversation memory
-        if request.session_id and "answer" in response:
-            engine.conversation_memory.add_message(request.session_id, "assistant", response["answer"])
-        
+        if isinstance(response, dict) and "answer" in response:
+            failed = is_engine_error(response["answer"])
+            response["answer"] = BUSY_MESSAGE if failed else strip_emoji(response["answer"])
+            # Add assistant response to conversation memory (never an error message)
+            if request.session_id and not failed:
+                engine.conversation_memory.add_message(request.session_id, "assistant", response["answer"])
         return response
+    except HTTPException:
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -168,7 +199,11 @@ async def handle_summarize(file: UploadFile = File(...)):
     try:
         content = await file.read()
         summary = await engine.summarize(content, file.filename)
-        return {"summary": summary}
+        if is_engine_error(summary):
+            raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
+        return {"summary": strip_emoji(summary)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -180,7 +215,11 @@ class CompareRequest(BaseModel):
 async def handle_compare(request: CompareRequest):
     try:
         comparison = await engine.compare_clauses(request.text1, request.text2)
+        if isinstance(comparison, dict) and comparison.get("error"):
+            raise HTTPException(status_code=503, detail=BUSY_MESSAGE)
         return {"comparison": comparison}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

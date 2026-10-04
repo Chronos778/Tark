@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.git
+.venv
+node_modules
+server/node_modules
+dist
+**/__pycache__
+datasets resources
+.claude
+.vscode

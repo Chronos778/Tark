@@ -17,26 +17,51 @@ import chromadb
 from chromadb.utils import embedding_functions
 import requests
 import io
+import time
+import pathlib
+from dotenv import load_dotenv
 from text_processor import TextProcessor
 from conversation_memory import ConversationMemory
+from rerank import select_context, keywords
+
+# Ensure root .env is loaded if not already present
+_base_path = pathlib.Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=_base_path / ".env")
 
 def is_valid_key(k: str | None) -> bool:
     return bool(k and not k.startswith("your_") and len(k.strip()) > 15)
 
 class RAGEngine:
     def __init__(self):
+        groq_key = os.getenv("GROQ_API_KEY")
         nvidia_key = os.getenv("NVIDIA_API_KEY")
         openrouter_key = os.getenv("OPENROUTER_API_KEY")
         
+        self.groq_api_key = groq_key if is_valid_key(groq_key) else None
+        extra = [k.strip() for k in os.getenv("GROQ_API_KEYS", "").split(",")]
+        self.groq_keys = [k for k in dict.fromkeys([self.groq_api_key, *extra]) if is_valid_key(k)]
+        if self.groq_keys and not self.groq_api_key:
+            self.groq_api_key = self.groq_keys[0]
+        self._groq_next = 0
         self.nvidia_api_key = nvidia_key if is_valid_key(nvidia_key) else None
         self.openrouter_api_key = openrouter_key if is_valid_key(openrouter_key) else None
         
-        # Priority: NVIDIA NIM -> OpenRouter
-        self.api_key = self.nvidia_api_key or self.openrouter_api_key
-        self.provider = "nvidia" if self.nvidia_api_key else ("openrouter" if self.openrouter_api_key else None)
+        # Priority: Groq -> NVIDIA NIM -> OpenRouter
+        self.api_key = self.groq_api_key or self.nvidia_api_key or self.openrouter_api_key
+        self.provider = (
+            "groq" if self.groq_api_key
+            else "nvidia" if self.nvidia_api_key
+            else "openrouter" if self.openrouter_api_key
+            else None
+        )
 
         # Model mapping
-        if self.provider == "nvidia":
+        if self.provider == "groq":
+            self.model_name = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+            self.model_legal = os.getenv("GROQ_MODEL_LEGAL", "openai/gpt-oss-120b")
+            self.model_simple = os.getenv("GROQ_MODEL_SIMPLE", "openai/gpt-oss-20b")
+            print(f"[RAGEngine] Using Groq API. Models: {self.model_name}")
+        elif self.provider == "nvidia":
             self.model_name = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
             self.model_legal = os.getenv("NVIDIA_MODEL_LEGAL", "meta/llama-3.1-70b-instruct")
             self.model_simple = os.getenv("NVIDIA_MODEL_SIMPLE", "meta/llama-3.1-8b-instruct")
@@ -53,7 +78,7 @@ class RAGEngine:
             print("[RAGEngine] ℹ️ Running in Local / Offline Mode (Fast Vector RAG & Rules Active).")
 
         if not self.api_key:
-            print("[RAGEngine] ⚠️ Warning: No API Key found (NVIDIA or OpenRouter). LLM features disabled.")
+            print("[RAGEngine] ⚠️ Warning: No API Key found (Groq, NVIDIA or OpenRouter). LLM features disabled.")
 
         # Initialize Enhanced Text Processor
         self.text_processor = TextProcessor()
@@ -104,20 +129,106 @@ class RAGEngine:
              print(f"[RAGEngine] ⚠️ Vector DB Connection Error: {e}")
              self.collection = None
 
+    _FOLLOWUP_LEADS = (
+        "and ", "but ", "also ", "then ", "so ", "what if", "what about", "how about", "why", "how so",
+        "can it", "does it", "is it", "will it", "would it", "what happens", "and if", "in that case",
+    )
+    _FOLLOWUP_WORDS = {"it", "this", "that", "they", "them", "those", "these", "he", "she", "its", "their", "same"}
+
+    def _looks_like_followup(self, query: str) -> bool:
+        words = re.findall(r"[a-zA-Z']+", query.lower())
+        if not words or len(words) > 14:
+            return False
+        q = query.lower().strip()
+        return q.startswith(self._FOLLOWUP_LEADS) or any(w in self._FOLLOWUP_WORDS for w in words)
+
+    def _rewrite_followup(self, session_id: str, query: str) -> str:
+        """Turn a short follow-up ("and if it is only an attempt?") into a standalone question."""
+        history = list(self.conversation_memory.get_history(session_id, max_messages=6))
+        # The server stores the current question before calling the engine; ignore that copy
+        if history and history[-1].get("role") == "user" and history[-1].get("content") == query:
+            history = history[:-1]
+        if not history or not self.api_key or not self._looks_like_followup(query):
+            return query
+
+        last_user = next((m["content"] for m in reversed(history) if m["role"] == "user"), "")
+        last_answer = next((m["content"] for m in reversed(history) if m["role"] == "assistant"), "")
+        prompt = (
+            "Rewrite the user's latest question as one standalone question that makes sense without the "
+            "conversation. Keep Indian legal terms and section numbers. If it is already standalone, return it "
+            "unchanged. Output ONLY the question.\r\n\r\n"
+            f"Previous question: {last_user[:300]}\r\n"
+            f"Previous answer (excerpt): {last_answer[:400]}\r\n"
+            f"Latest question: {query}"
+        )
+        try:
+            rewritten = self._call_llm(
+                [{"role": "user", "content": prompt}], max_tokens=80, timeout=20, model_override=self.model_simple
+            ).strip().strip('"').strip()
+        except Exception as e:
+            print(f"[RAGEngine] Follow-up rewrite failed: {e}")
+            return query
+        if not rewritten or len(rewritten) > 300 or rewritten.lower().startswith("error"):
+            return query
+        return rewritten
+
+    _SECTION_REF = re.compile(
+        r"(?:section|sec\.?|s\.|धारा)\s*(\d{1,3}[A-Za-z]{0,2})\b|\b(\d{1,3}[A-Za-z]{0,2})\s+(?:of\s+(?:the\s+)?)?(?:ipc|bns|it act)\b"
+        r"|\b(?:ipc|bns|it act)\s+(?:section\s*)?(\d{1,3}[A-Za-z]{0,2})\b",
+        re.IGNORECASE,
+    )
+    _LAW_WORDS = {"bns": "BNS", "ipc": "IPC", "it act": "IT Act"}
+
+    def _explicit_section_hits(self, query: str, limit: int = 4):
+        """Passages for sections the user named explicitly, looked up by metadata."""
+        if not self.collection:
+            return []
+        q = query.lower()
+        numbers = {(m.group(1) or m.group(2) or m.group(3)).upper() for m in self._SECTION_REF.finditer(query)}
+        if not numbers:
+            return []
+        laws = [name for word, name in self._LAW_WORDS.items() if re.search(rf"\b{re.escape(word)}\b", q)]
+        hits = []
+        for number in sorted(numbers)[:3]:
+            for key in ("section", "bns_section", "ipc_section"):
+                try:
+                    got = self.collection.get(where={key: number}, include=["documents", "metadatas"], limit=limit)
+                except Exception:
+                    continue
+                for doc, meta in zip(got["documents"], got["metadatas"]):
+                    if not laws or meta.get("law") in laws:
+                        hits.append((doc, meta))
+        return hits[: limit * 2]
+
+    @staticmethod
+    def _trim_runaway(text: str, max_chars: int = 7000) -> str:
+        """Drop immediately repeated lines and cap length, in case the model loops."""
+        out = []
+        for line in text.split("\r\n"):
+            if out and line.strip() and line.strip() == out[-1].strip():
+                continue
+            out.append(line)
+        trimmed = "\r\n".join(out)
+        return trimmed if len(trimmed) <= max_chars else trimmed[:max_chars].rsplit("\r\n", 1)[0]
+
     def _classify_query(self, query: str) -> str:
         """Classify query as 'simple' or 'legal' for optimization."""
         query_lower = query.lower()
         
-        # Simple greetings/basic questions that don't need RAG
+        # Simple greetings/basic questions that don't need RAG. Match whole words/phrases only
+        # ("hi" must not fire on "Sanhita", "this" or "which") and only for short messages.
         simple_patterns = [
             'hello', 'hi', 'hey', 'thanks', 'thank you',
             'what is your name', 'who are you', 'what can you do',
             'help', 'how to use', 'what are you'
         ]
-        
-        if any(pattern in query_lower for pattern in simple_patterns):
+        legal_words = ('section', 'ipc', 'bns', 'law', 'legal', 'penalty', 'punishment', 'act', 'case',
+                       'judgment', 'court', 'crime', 'offence', 'offense', 'murder', 'theft')
+        short = len(query_lower.split()) <= 8
+        has_legal = any(re.search(rf"\b{w}\b", query_lower) for w in legal_words)
+        if short and not has_legal and any(re.search(rf"\b{re.escape(p)}\b", query_lower) for p in simple_patterns):
             return 'simple'
-        
+
         # Legal queries need full RAG pipeline
         legal_patterns = [
             'section', 'ipc', 'bns', 'law', 'legal', 'penalty', 'punishment',
@@ -163,12 +274,18 @@ class RAGEngine:
         return f'https://www.indiacode.nic.in/search?keyword={law.replace(" ", "+")}+section+{section_num}'
     
     
-    def _call_llm(self, messages: List[Dict], max_tokens: int = 1500, timeout: int = 30, model_override: Optional[str] = None) -> str:
+    def _call_llm(self, messages: List[Dict], max_tokens: int = 1500, timeout: int = 30, model_override: Optional[str] = None, _retried: bool = False) -> str:
         """Helper to call LLM API with timeout."""
         if not self.api_key:
             raise Exception("API Key missing")
 
-        if self.provider == "nvidia":
+        if self.provider == "groq":
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+        elif self.provider == "nvidia":
             url = "https://integrate.api.nvidia.com/v1/chat/completions"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -179,7 +296,7 @@ class RAGEngine:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "HTTP-Referer": os.getenv("APP_URL", "http://localhost:3000"),
-                "X-Title": "LegalAi",
+                "X-Title": "Nyaya",
                 "Content-Type": "application/json"
             }
 
@@ -189,10 +306,52 @@ class RAGEngine:
             "temperature": 0.2,
             "max_tokens": max_tokens
         }
+        # Groq's free tier caps each model at ~8k tokens/minute. Every model has its own bucket,
+        # so on a 429 (or an empty reply) fall through to the next model instead of failing.
+        if self.provider == "groq":
+            primary = data["model"]
+            fallbacks = [m for m in os.getenv(
+                "GROQ_FALLBACK_MODELS", "openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b"
+            ).split(",") if m and m != primary]
+            candidates = [primary] + fallbacks
+        else:
+            candidates = [data["model"]]
 
-        try:
-            response = requests.post(url, headers=headers, json=data, timeout=timeout)
-            
+        # Build (model, key) attempts: all keys for a model before moving to the next model.
+        attempts = []
+        for model in candidates:
+            if self.provider == "groq" and len(self.groq_keys) > 1:
+                start = self._groq_next % len(self.groq_keys)
+                for i in range(len(self.groq_keys)):
+                    attempts.append((model, self.groq_keys[(start + i) % len(self.groq_keys)]))
+            else:
+                attempts.append((model, self.api_key))
+        if self.provider == "groq":
+            self._groq_next += 1  # spread load across keys
+
+        last_error = "unknown error"
+        for attempt, (model, key) in enumerate(attempts):
+            payload = dict(data, model=model)
+            if self.provider == "groq":
+                headers = dict(headers, Authorization=f"Bearer {key}")
+                if model.startswith("openai/gpt-oss"):
+                    # gpt-oss reasons before answering; keep that short and leave room for the answer
+                    payload["reasoning_effort"] = "low"
+                    payload["max_tokens"] = max_tokens + 800
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            except requests.exceptions.Timeout:
+                print(f"[RAGEngine] Request timeout after {timeout}s on {model}")
+                last_error = f"Response took too long (>{timeout}s). The LLM service may be busy. Please try again."
+                continue
+            except Exception as e:
+                print(f"[RAGEngine] Request failed: {e}")
+                raise e
+
+            if response.status_code == 429:
+                print(f"[RAGEngine] {model} rate limited (key ...{key[-4:]}), trying next")
+                last_error = f"API Error 429: {response.text[:200]}"
+                continue
             if response.status_code != 200:
                 print(f"[RAGEngine] API Error Body: {response.text}")
                 raise Exception(f"API Error {response.status_code}: {response.text}")
@@ -200,18 +359,19 @@ class RAGEngine:
             result = response.json()
             if 'choices' in result and len(result['choices']) > 0:
                 content = result['choices'][0]['message'].get('content', '')
-                if not content:
-                     return "Error: Received empty content from LLM."
-                return content
-            else:
-                raise Exception(f"Unexpected response format: {result}")
+                if content:
+                    return content
+                print(f"[RAGEngine] Empty content from {model}, trying next model")
+                last_error = "Received empty content from LLM."
+                continue
+            raise Exception(f"Unexpected response format: {result}")
 
-        except requests.exceptions.Timeout:
-            print(f"[RAGEngine] Request timeout after {timeout}s")
-            raise Exception(f"Response took too long (>{timeout}s). The LLM service may be busy. Please try again.")
-        except Exception as e:
-            print(f"[RAGEngine] Request failed: {e}")
-            raise e
+        if last_error.startswith("API Error 429") and not _retried:
+            # Every model/key was rate limited; per-minute limits clear quickly, so wait once and retry
+            print("[RAGEngine] All models rate limited; waiting 6s before one retry")
+            time.sleep(6)
+            return self._call_llm(messages, max_tokens, timeout, model_override, _retried=True)
+        raise Exception(last_error)
 
     def _clean_text(self, text: str) -> str:
         """Cleans extracted text by normalizing whitespace."""
@@ -273,18 +433,18 @@ class RAGEngine:
             for i, chunk in enumerate(chunks[:max_chunks]):
                 print(f"[RAGEngine] Summarizing chunk {i+1}/{max_chunks}...")
                 prompt = (
-                    "You are a legal AI assistant.\n"
-                    "Summarize the following legal text with:\n"
-                    "- Key facts\n"
-                    "- Legal issues\n"
-                    "- Sections / Acts mentioned (ONLY if explicitly present)\n"
-                    "- Court observations (if any)\n\n"
-                    "Rules:\n"
-                    "- Do NOT infer missing sections\n"
-                    "- Do NOT hallucinate citations\n"
-                    "- Use neutral legal language\n"
-                    "- Bullet points preferred\n\n"
-                    f"Text:\n{chunk}"
+                    "You are a legal AI assistant.\r\n"
+                    "Summarize the following legal text with:\r\n"
+                    "- Key facts\r\n"
+                    "- Legal issues\r\n"
+                    "- Sections / Acts mentioned (ONLY if explicitly present)\r\n"
+                    "- Court observations (if any)\r\n\r\n"
+                    "Rules:\r\n"
+                    "- Do NOT infer missing sections\r\n"
+                    "- Do NOT hallucinate citations\r\n"
+                    "- Use neutral legal language\r\n"
+                    "- Bullet points preferred\r\n\r\n"
+                    f"Text:\r\n{chunk}"
                 )
                 try:
                     summary = self._call_llm([{"role": "user", "content": prompt}], max_tokens=600)
@@ -297,26 +457,26 @@ class RAGEngine:
 
             # 5. Combine -> Final Structured Summary
             print("[RAGEngine] Generating Final Structured Summary...")
-            combined_text = "\n\n".join(chunk_summaries)
+            combined_text = "\r\n\r\n".join(chunk_summaries)
             
             final_system_prompt = (
                 "You are an expert Legal Architect AI. "
                 "Using the provided summaries of a legal document, create a single, Master Structured Summary. "
-                "Format strictly in Markdown with the following sections:\n"
-                "### 📌 Executive Summary\n(A concise overview)\n\n"
-                "### 🏷 Case Classification\n"
-                "- Nature: Criminal / Civil / Constitutional / Administrative\n"
-                "- Cyber Law Applicable: Yes / No\n"
-                "- Era: Pre-IT Act / Post-IT Act\n\n"
-                "### 📑 Key Legal Sections Referenced\n(List specific Acts and Sections)\n\n"
-                "### ⚖️ Critical Observations & Findings\n(Key points, obligations, facts)\n\n"
-                "### 📚 Citations & Case Law\n(If any mentioned)\n\n"
-                "### 🔮 Legal Implications\n(What this means for the parties)"
+                "Format strictly in Markdown with the following sections:\r\n"
+                "### Executive Summary\r\n(A concise overview)\r\n\r\n"
+                "### Case Classification\r\n"
+                "- Nature: Criminal / Civil / Constitutional / Administrative\r\n"
+                "- Cyber Law Applicable: Yes / No\r\n"
+                "- Era: Pre-IT Act / Post-IT Act\r\n\r\n"
+                "### Key Legal Sections Referenced\r\n(List specific Acts and Sections)\r\n\r\n"
+                "### Critical Observations & Findings\r\n(Key points, obligations, facts)\r\n\r\n"
+                "### Citations & Case Law\r\n(If any mentioned)\r\n\r\n"
+                "### Legal Implications\r\n(What this means for the parties)"
             )
 
             final_summary = self._call_llm([
                 {"role": "system", "content": final_system_prompt},
-                {"role": "user", "content": f"Summaries:\n{combined_text}"}
+                {"role": "user", "content": f"Summaries:\r\n{combined_text}"}
             ], max_tokens=1500)
 
             return final_summary
@@ -335,18 +495,18 @@ class RAGEngine:
         system_prompt = (
             "You are an expert Legal Analyst specializing in Indian Law (IPC vs BNS). "
             "Compare the two provided legal clauses deeply. "
-            "You MUST return the result in valid JSON format with the following structure:\n"
-            "{\n"
-            '  "change_type": "Renumbered / Modified / New / Removed",\n'
-            '  "legal_impact": "A concise summary of the legal impact...",\n'
-            '  "penalty_difference": "No substantive change / Increased / Decreased",\n'
-            '  "key_changes": ["Bullet point 1", "Bullet point 2"],\n'
-            '  "verdict": "Minor procedural change" (or "Major substantive change")\n'
-            "}\n"
+            "You MUST return the result in valid JSON format with the following structure:\r\n"
+            "{\r\n"
+            '  "change_type": "Renumbered / Modified / New / Removed",\r\n'
+            '  "legal_impact": "A concise summary of the legal impact...",\r\n'
+            '  "penalty_difference": "No substantive change / Increased / Decreased",\r\n'
+            '  "key_changes": ["Bullet point 1", "Bullet point 2"],\r\n'
+            '  "verdict": "Minor procedural change" (or "Major substantive change")\r\n'
+            "}\r\n"
             "Do not include any Markdown formatting (like ```json). Just the raw JSON string."
         )
 
-        user_query = f"Clause A (Old/IPC): {text1}\n\nClause B (New/BNS): {text2}"
+        user_query = f"Clause A (Old/IPC): {text1}\r\n\r\nClause B (New/BNS): {text2}"
 
         try:
             response_text = self._call_llm([
@@ -394,7 +554,7 @@ class RAGEngine:
         if session_id:
             # SAFEGUARD: Do not reformulate very long queries (e.g. pasted text)
             if len(query) < 300:
-                query = self.conversation_memory.reformulate_query(session_id, query)
+                query = self._rewrite_followup(session_id, query)
                 if query != original_query:
                     print(f"[RAGEngine] Query reformulated: '{original_query}' -> '{query}'")
         
@@ -432,11 +592,11 @@ class RAGEngine:
             # Optional LLM router as fallback when ambiguous
             try:
                 router_prompt = (
-                    "You are a Router. Classify the user input.\n"
-                    "- If it is a greeting, general chat, or a question NOT about Indian Law, answer it directly and politely. DO NOT say 'I am a router'. Act as LegalAi.\n"
-                    "- If it is a specific legal question, OR a request for 'details', 'explanation', 'elaboration', or a follow-up to a previous topic, reply ONLY with the word 'SEARCH'.\n"
-                    "- If the input is ambiguous, reply 'SEARCH'.\n"
-                    f"- User Language: {language}\n"
+                    "You are a Router. Classify the user input.\r\n"
+                    "- If it is a greeting, general chat, or a question NOT about Indian Law, answer it directly and politely. DO NOT say 'I am a router'. Act as LegalAi.\r\n"
+                    "- If it is a specific legal question, OR a request for 'details', 'explanation', 'elaboration', or a follow-up to a previous topic, reply ONLY with the word 'SEARCH'.\r\n"
+                    "- If the input is ambiguous, reply 'SEARCH'.\r\n"
+                    f"- User Language: {language}\r\n"
                     "User Input: " + query
                 )
                 routing_response = self._call_llm([{"role": "user", "content": router_prompt}], max_tokens=150, model_override=self.model_simple).strip()
@@ -464,7 +624,7 @@ class RAGEngine:
         if language == 'hi':
             try:
                 print(f"[RAGEngine] Translating query to English for Search...")
-                translation_prompt = f"Translate the following Hindi legal query to precise English legal terms for a database search. Output ONLY the English translation.\nHindi: {query}"
+                translation_prompt = f"Translate the following Hindi legal query to precise English legal terms for a database search. Output ONLY the English translation.\r\nHindi: {query}"
                 translated_query = self._call_llm([{"role": "user", "content": translation_prompt}], max_tokens=100).strip()
                 safe_translated = translated_query.encode('ascii', 'replace').decode('ascii')
                 safe_original = query.encode('ascii', 'replace').decode('ascii')
@@ -478,68 +638,75 @@ class RAGEngine:
             print(f"[RAGEngine] Starting Vector Search for '{search_query}'...", flush=True)
             
             search_cache_key = f"search::{search_query}"
-            if search_cache_key in self._cache:
-                 print(f"[RAGEngine] Using Cached Search Results.")
-                 results = self._cache[search_cache_key]
+            results = self._cache.get(search_cache_key)
+            if results is not None:
+                print(f"[RAGEngine] Using Cached Search Results.")
             elif self.collection:
+                # Pull a wide candidate pool; the keyword re-ranker picks the best passages from it
                 results = self.collection.query(
                     query_texts=[search_query], # Use the (potentially) translated query
-                    n_results=5,
+                    n_results=30,
                     include=["documents", "metadatas", "distances"]
                 )
-                # Cache the raw search results
                 self._cache[search_cache_key] = results
                 print(f"[RAGEngine] Vector Search Complete. Found: {len(results['documents'][0])} docs", flush=True)
-                
-                docs = results['documents'][0]
-                metas = results['metadatas'][0]
-                
-                dists = results['distances'][0]
-                min_dist = min(dists) if dists else 1.0
-                
-                doc_count = 0
-                for i, doc in enumerate(docs):
-                    meta = metas[i]
-                    dist = dists[i]
-                    
-                    # Relevance Cutoff tightened: dynamic + absolute guard
-                    # RELAXED threshold per expert recommendation
-                    if dist > 0.45:
-                        continue
+
+            if results is not None:
+                docs = list(results['documents'][0])
+                metas = list(results['metadatas'][0])
+                dists = list(results['distances'][0])
+                # If the question names a section ("section 66A"), fetch it directly so semantic
+                # search cannot miss it
+                for doc, meta in self._explicit_section_hits(search_query):
+                    if doc not in docs:
+                        docs.append(doc)
+                        metas.append(meta)
+                        dists.append(0.9)
+                selected = select_context(search_query, docs, metas, dists)
+                # Relevance gating: verify that retrieved chunks genuinely match the subject matter
+                q_kws = keywords(search_query)
+                relevant_selected = []
+                for doc, meta, score in selected:
+                    text_lower = doc.lower()
+                    topic_lower = str(meta.get('topic', '')).lower()
+                    sec = str(meta.get('section') or meta.get('bns_section') or meta.get('ipc_section') or '').lower()
+                    has_kw = any(k in text_lower or k in topic_lower or (sec and k in sec) for k in q_kws)
+                    # Keep if distance is close (<= 1.15) OR if keywords match with distance (<= 1.25)
+                    if score <= 1.15 or (has_kw and score <= 1.25):
+                        relevant_selected.append((doc, meta, score))
+
+                if relevant_selected:
+                    for doc, meta, _score in relevant_selected:
+                        snippet = doc[:1000]
+                        src = meta.get('source', 'Unknown')
+                        law = meta.get('law')
+                        section = meta.get('section') or meta.get('bns_section') or meta.get('ipc_section')
+                        context_text += f"---\r\nSource: {src}\r\nContent: {snippet}\r\n"
                         
-                    # Limit context size: max 4 docs
-                    if doc_count >= 4:
-                        break
-                    doc_count += 1
-                        
-                    snippet = doc[:2000]
-                    src = meta.get('source', 'Unknown')
-                    law = meta.get('law')
-                    section = meta.get('section') or meta.get('bns_section') or meta.get('ipc_section')
-                    context_text += f"---\nSource: {src}\nContent: {snippet}\n"
-                    
-                    if meta.get("type") == "statute":
-                         # Generate URL if not in metadata
-                         citation_url = meta.get("url") or self._generate_statute_url(law, section)
-                         citations.append({
-                             "source": (law or "Statute"),
-                             "section": f"Section {section}" if section else None,
-                             "url": citation_url,
-                             "text": snippet[:200] + "..."
-                         })
-                    elif meta.get("type") == "judgment":
-                         title = meta.get("title", "Unknown Case")
-                         if title and title != "Unknown Case":
+                        if meta.get("type") == "statute":
+                             # Generate URL if not in metadata
+                             citation_url = meta.get("url") or self._generate_statute_url(law, section)
                              citations.append({
-                                 "source": "Supreme Court Judgment", 
-                                 "section": title, 
+                                 "source": (law or "Statute"),
+                                 "section": f"Section {section}" if section else None,
+                                 "url": citation_url,
                                  "text": snippet[:200] + "..."
                              })
-                             related_judgments.append({
-                                 "title": title,
-                                 "summary": snippet[:200] + "...",
-                                 "case_id": meta.get("case_id", "")
-                             })
+                        elif meta.get("type") == "judgment":
+                             title = meta.get("title", "Unknown Case")
+                             if title and title != "Unknown Case":
+                                 citations.append({
+                                     "source": "Supreme Court Judgment", 
+                                     "section": title, 
+                                     "text": snippet[:200] + "..."
+                                 })
+                                 related_judgments.append({
+                                     "title": title,
+                                     "summary": snippet[:200] + "...",
+                                     "case_id": meta.get("case_id", "")
+                                 })
+                else:
+                    context_text = "No directly relevant statutory excerpts found in local database."
             else:
                 context_text = "Database not available. Answer generically."
         except Exception as e:
@@ -554,72 +721,70 @@ class RAGEngine:
         print(f"[RAGEngine] Preparing LLM request...", flush=True)
         if self.api_key:
             system_prompt = (
-                "You are LegalAi, an expert Indian legal research assistant with comprehensive knowledge of Indian law.\n\n"
-                "CRITICAL INSTRUCTIONS:\n"
-                "1. ALWAYS provide authoritative, professional answers. NEVER mention 'context not available', 'provided context', or data limitations.\n"
-                "2. Use the provided Context when available, otherwise rely on your knowledge of Indian Law (IPC, BNS, CrPC, IT Act, Constitution).\n"
-                "3. NEVER say 'does not directly relate' or 'not applicable'. If a question is about constitutional law, civil law, or case law, answer it confidently.\n"
-                "4. For landmark cases (e.g., Kesavananda Bharati), provide the case name, year, key holding, and citation (AIR/SCC) even if not in the database.\n"
-                "5. ACCURACY: Verify facts. IPC 420 = up to 7 years + fine. IPC 302 = Death or Life Imprisonment.\n"
-                "6. STRUCTURE:\n"
-                "   - Direct Answer (clear, confident)\n"
-                "   - Provisions/Key Points (if applicable)\n"
-                "   - Punishment/Outcome (if applicable)\n"
-                "   - Source/Citation (statute or case law)\n\n"
-                "7. NEVER use phrases like:\n"
-                "   - 'The provided context does not contain...'\n"
-                "   - 'Not applicable as...'\n"
-                "   - 'Does not directly relate to...'\n"
-                "   Instead, answer the question directly and professionally.\n\n"
+                "You are Nyaya, an authoritative and thorough Indian legal research assistant.\r\n\r\n"
+                "Abbreviations: IPC = Indian Penal Code, 1860. BNS = Bharatiya Nyaya Sanhita, 2023 (replaced the IPC). BNSS = Bharatiya Nagarik Suraksha Sanhita, 2023. IT Act = Information Technology Act, 2000.\r\n\r\n"
+                "RULES:\r\n"
+                "1. Ground statutory citations in the Context provided whenever relevant excerpts are present. Quote or closely paraphrase provisions and name their section numbers and Acts.\r\n"
+                "2. If local database excerpts do not cover the specific subject (such as tenancy/rent agreements under the Transfer of Property Act 1882 & Registration Act 1908, consumer protection, family law, contract law, or civil procedure), synthesize established Indian statutory law, landmark principles, and standard procedural requirements to provide an authoritative, detailed, and practically useful legal answer. Never refuse to answer or give a blank response simply because a statute is not present in the local database excerpts.\r\n"
+                "3. Do not invent nonexistent section numbers or fake case names. Only cite genuine Indian statutes and established landmark jurisprudence.\r\n"
+                "4. Be structured, objective, and clear. Do not give informal personal advice.\r\n"
+                "5. STRUCTURE: Direct Answer; Key Provisions / Legal Framework (governing Acts, sections, essentials, clauses); Formalities & Procedural Requirements / Outcome; Relevant Acts & Sources.\r\n"
+                "6. If using a Markdown table, ensure valid GitHub Flavored Markdown with every row on its own line separated by standard newlines (never merge rows with || on a single line).\r\n\r\n"
                 "DISCLAIMER: For informational purposes only. Not legal advice."
             )
             if language == "hi":
                 system_prompt += (
-                    "\n\nLANGUAGE RULE:\n- Respond fully in Hindi (Devanagari).\n- Section numbers and Act names may remain in English characters.\n"
-                    "- Translate legal terms to Hindi where appropriate. Do NOT reply in English."
+                    "\r\n\r\nCRITICAL LANGUAGE MANDATE:\r\n"
+                    "- The user has selected Hindi. You MUST generate the ENTIRE response in Hindi using the Devanagari script (हिन्दी).\r\n"
+                    "- Even if the user prompt is written in English or Latin script, your response MUST be in Hindi.\r\n"
+                    "- Use Devanagari script for all explanations, analyses, and section headings (e.g. 'सीधा उत्तर', 'मुख्य कानूनी प्रावधान एवं रूपरेखा', 'अनिवार्य तत्व एवं प्रक्रिया', 'संबंधित अधिनियम एवं स्रोत').\r\n"
+                    "- Act names can be mentioned with their standard Hindi and English names (e.g., भारतीय न्याय संहिता, 2023 / BNS; संपत्ति अंतरण अधिनियम, 1882 / Transfer of Property Act).\r\n"
+                    "- Do NOT output the main explanation in English."
                 )
 
             if is_long:
                 system_prompt += (
-                    "\n\nLONG-FORM REQUEST:\n"
+                    "\r\n\r\nLONG-FORM REQUEST:\r\n"
                     "- Provide a detailed explanation with additional context when possible."
                 )
 
             if analysis_mode:
                 system_prompt += (
-                    "\n[NEUTRAL ANALYSIS REQUESTED]\n"
-                    "You must also provide a Neutral Analysis section at the end.\n"
-                    "Strictly use this format:\n"
-                    "[FACTORS]\n- Factor 1\n- Factor 2\n[/FACTORS]\n"
-                    "[INTERPRETATIONS]\n- Interpretation 1\n- Interpretation 2\n[/INTERPRETATIONS]"
+                    "\r\n[NEUTRAL ANALYSIS REQUESTED]\r\n"
+                    "You must also provide a Neutral Analysis section at the end.\r\n"
+                    "Strictly use this format:\r\n"
+                    "[FACTORS]\r\n- Factor 1\r\n- Factor 2\r\n[/FACTORS]\r\n"
+                    "[INTERPRETATIONS]\r\n- Interpretation 1\r\n- Interpretation 2\r\n[/INTERPRETATIONS]"
                 )
             
             if arguments_mode:
                 system_prompt += (
-                    "\n[ARGUMENTS REQUESTED]\n"
-                    "You must also provide Balanced Arguments at the end.\n"
-                    "Strictly use this format:\n"
-                    "[FOR]\n- Argument For 1\n- Argument For 2\n[/FOR]\n"
-                    "[AGAINST]\n- Argument Against 1\n- Argument Against 2\n[/AGAINST]"
+                    "\r\n[ARGUMENTS REQUESTED]\r\n"
+                    "You must also provide Balanced Arguments at the end.\r\n"
+                    "Strictly use this format:\r\n"
+                    "[FOR]\r\n- Argument For 1\r\n- Argument For 2\r\n[/FOR]\r\n"
+                    "[AGAINST]\r\n- Argument Against 1\r\n- Argument Against 2\r\n[/AGAINST]"
                 )
 
-            user_query = f"Context:\n{context_text}\n\nQuery: {query}\n"
+            user_query = f"Context:\r\n{context_text}\r\n\r\nQuery: {query}\r\n"
+            if language == "hi":
+                user_query += "\r\n\r\n(REMINDER: The user selected Hindi mode. You MUST respond strictly in Hindi / Devanagari script.)"
             
             # Append instructions to User Prompt for Recency Bias
             if analysis_mode:
                 user_query += (
-                    "\n\nIMPORTANT: You MUST also provide a Neutral Analysis at the very end.\n"
-                    "Use this EXACT format:\n"
-                    "[FACTORS]\n- Factor 1\n- Factor 2\n[/FACTORS]\n"
-                    "[INTERPRETATIONS]\n- Interpretation 1\n- Interpretation 2\n[/INTERPRETATIONS]"
+                    "\r\n\r\nIMPORTANT: You MUST also provide a Neutral Analysis at the very end.\r\n"
+                    "Use this EXACT format:\r\n"
+                    "[FACTORS]\r\n- Factor 1\r\n- Factor 2\r\n[/FACTORS]\r\n"
+                    "[INTERPRETATIONS]\r\n- Interpretation 1\r\n- Interpretation 2\r\n[/INTERPRETATIONS]"
                 )
 
             if arguments_mode:
                  user_query += (
-                    "\n\nIMPORTANT: You MUST also provide Balanced Arguments at the very end.\n"
-                    "Use this EXACT format:\n"
-                    "[FOR]\n- Argument For 1\n[/FOR]\n"
-                    "[AGAINST]\n- Argument Against 1\n[/AGAINST]"
+                    "\r\n\r\nIMPORTANT: You MUST also provide Balanced Arguments at the very end.\r\n"
+                    "Use this EXACT format:\r\n"
+                    "[FOR]\r\n- Argument For 1\r\n[/FOR]\r\n"
+                    "[AGAINST]\r\n- Argument Against 1\r\n[/AGAINST]"
                 )
 
             try:
@@ -640,12 +805,12 @@ class RAGEngine:
                 raw_answer = self._call_llm([
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_query}
-                ], max_tokens=max_tokens, model_override=self.model_simple)
+                ], max_tokens=max_tokens, model_override=self.model_legal)
                 print(f"[RAGEngine] LLM returned response.", flush=True)
                 try:
-                    print(f"\n[DEBUG] Raw LLM Answer:\n{raw_answer.encode('utf-8', 'replace').decode('utf-8')}\n[DEBUG] End Raw Answer\n", flush=True)
+                    print(f"\r\n[DEBUG] Raw LLM Answer:\r\n{raw_answer.encode('utf-8', 'replace').decode('utf-8')}\r\n[DEBUG] End Raw Answer\r\n", flush=True)
                 except Exception:
-                     print(f"\n[DEBUG] Raw LLM Answer: (encoding error)\n[DEBUG] End Raw Answer\n", flush=True)
+                     print(f"\r\n[DEBUG] Raw LLM Answer: (encoding error)\r\n[DEBUG] End Raw Answer\r\n", flush=True)
                 
                 def extract_tag(text, start_tag, end_tag):
                     # Try exact tag first
@@ -660,7 +825,7 @@ class RAGEngine:
 
                     if match:
                         content = match.group(1).strip()
-                        return [item.strip("- *").strip() for item in content.split("\n") if item.strip()]
+                        return [item.strip("- *").strip() for item in content.split("\r\n") if item.strip()]
                     return []
 
                 if analysis_mode:
@@ -689,7 +854,11 @@ class RAGEngine:
                         answer = answer[:idx].strip()
 
                 # Cleanup
-                answer = re.sub(r'\n{3,}', '\n\n', answer).strip()
+                # Fix collapsed table rows where '|' of previous row touches '|' of next row without newline
+                answer = re.sub(r'\|{2,}', '|\r\n|', answer)
+                # Ensure a blank line before any table if preceded by normal text
+                answer = re.sub(r'([^\r\n])\r\n(\| ?[^\r\n]+\| *\r\n\| *[-:| ]+ *\|)', r'\1\r\n\r\n\2', answer)
+                answer = re.sub(r'\r\n{3,}', '\r\n\r\n', answer).strip()
                 # Cache the structured result
                 self._cache[cache_key] = {
                     "answer": answer,
@@ -747,59 +916,60 @@ class RAGEngine:
         Generates a formal legal draft based on the user's details.
         """
         templates = {
-            "legal_notice": "## LEGAL NOTICE\nThrough Registered Post / Speed Post / Email\nDate: [Date]\n\nTo,\n[Recipient Name]\n[Recipient Address]\n\n### Subject:\nLegal Notice under [Applicable Law] regarding [Issue Brief]\n\nSir/Madam,\n\nUnder instructions and on behalf of my client [Sender Name], residing at [Sender Address], I hereby serve upon you the present legal notice as follows:\n\n1. Facts of the Case\nThat my client [Brief Background].\nThat despite requests, you have [Breach Description].\n\n2. Legal Provisions\nYour actions amount to violation of:\n- [Section Name] of [Act Name]\n- Other applicable provisions of law\n\n3. Cause of Action\nThat the cause of action arose on [Date] and continues to subsist.\n\n4. Demand\nYou are hereby called upon to:\n- [Specific Demand]\nwithin [Time Limit] days from receipt of this notice.\n\n5. Consequences\nFailing compliance, my client shall initiate legal proceedings at your risk.\n\nYours faithfully,\n[Advocate Name]\nAdvocate for [Sender Name]",
+            "legal_notice": "## LEGAL NOTICE\r\nThrough Registered Post / Speed Post / Email\r\nDate: [Date]\r\n\r\nTo,\r\n[Recipient Name]\r\n[Recipient Address]\r\n\r\n### Subject:\r\nLegal Notice under [Applicable Law] regarding [Issue Brief]\r\n\r\nSir/Madam,\r\n\r\nUnder instructions and on behalf of my client [Sender Name], residing at [Sender Address], I hereby serve upon you the present legal notice as follows:\r\n\r\n1. Facts of the Case\r\nThat my client [Brief Background].\r\nThat despite requests, you have [Breach Description].\r\n\r\n2. Legal Provisions\r\nYour actions amount to violation of:\r\n- [Section Name] of [Act Name]\r\n- Other applicable provisions of law\r\n\r\n3. Cause of Action\r\nThat the cause of action arose on [Date] and continues to subsist.\r\n\r\n4. Demand\r\nYou are hereby called upon to:\r\n- [Specific Demand]\r\nwithin [Time Limit] days from receipt of this notice.\r\n\r\n5. Consequences\r\nFailing compliance, my client shall initiate legal proceedings at your risk.\r\n\r\nYours faithfully,\r\n[Advocate Name]\r\nAdvocate for [Sender Name]",
             
-            "nda": "## NON-DISCLOSURE AGREEMENT (NDA)\n\nThis Agreement is entered into on [Date] between:\n\nParty A: [Party A Name], at [Address A]\nParty B: [Party B Name], at [Address B]\n\n1. Purpose\nThe parties wish to exchange confidential information for [Purpose].\n\n2. Definition of Confidential Information\n'Confidential Information' includes all written, oral, electronic information disclosed.\n\n3. Obligations\nThe Receiving Party shall:\n- Not disclose confidential information to third parties\n- Use the information solely for the stated purpose\n\n4. Exclusions\nInformation publicly available or required by law is excluded.\n\n5. Term\nValid for [Duration] years.\n\n6. Governing Law\nGoverned by laws of India.\n\n7. Jurisdiction\nCourts at [City] shall have exclusive jurisdiction.\n\nIN WITNESS WHEREOF, the parties have signed.\n\nParty A Signature: __________\nParty B Signature: __________",
+            "nda": "## NON-DISCLOSURE AGREEMENT (NDA)\r\n\r\nThis Agreement is entered into on [Date] between:\r\n\r\nParty A: [Party A Name], at [Address A]\r\nParty B: [Party B Name], at [Address B]\r\n\r\n1. Purpose\r\nThe parties wish to exchange confidential information for [Purpose].\r\n\r\n2. Definition of Confidential Information\r\n'Confidential Information' includes all written, oral, electronic information disclosed.\r\n\r\n3. Obligations\r\nThe Receiving Party shall:\r\n- Not disclose confidential information to third parties\r\n- Use the information solely for the stated purpose\r\n\r\n4. Exclusions\r\nInformation publicly available or required by law is excluded.\r\n\r\n5. Term\r\nValid for [Duration] years.\r\n\r\n6. Governing Law\r\nGoverned by laws of India.\r\n\r\n7. Jurisdiction\r\nCourts at [City] shall have exclusive jurisdiction.\r\n\r\nIN WITNESS WHEREOF, the parties have signed.\r\n\r\nParty A Signature: __________\r\nParty B Signature: __________",
             
-            "rent_agreement": "## RENT AGREEMENT\n\nThis Agreement is made on [Date] between:\n\nLandlord: [Landlord Name]\nTenant: [Tenant Name]\n\n1. Property\nThe Landlord lets out the premises located at [Property Address].\n\n2. Rent\nMonthly rent shall be Rs. [Rent Amount], payable on or before [Due Date].\n\n3. Security Deposit\nTenant shall pay Rs. [Security Deposit] as refundable security deposit.\n\n4. Term\nValid for [Duration] months.\n\n5. Maintenance\nTenant shall maintain the premises and not sublet without permission.\n\n6. Termination\nEither party may terminate with [Notice Period] days notice.\n\nSigned on [Date].\n\nLandlord Signature: _______\nTenant Signature: _______",
+            "rent_agreement": "## RENT AGREEMENT\r\n\r\nThis Agreement is made on [Date] between:\r\n\r\nLandlord: [Landlord Name]\r\nTenant: [Tenant Name]\r\n\r\n1. Property\r\nThe Landlord lets out the premises located at [Property Address].\r\n\r\n2. Rent\r\nMonthly rent shall be Rs. [Rent Amount], payable on or before [Due Date].\r\n\r\n3. Security Deposit\r\nTenant shall pay Rs. [Security Deposit] as refundable security deposit.\r\n\r\n4. Term\r\nValid for [Duration] months.\r\n\r\n5. Maintenance\r\nTenant shall maintain the premises and not sublet without permission.\r\n\r\n6. Termination\r\nEither party may terminate with [Notice Period] days notice.\r\n\r\nSigned on [Date].\r\n\r\nLandlord Signature: _______\r\nTenant Signature: _______",
             
-            "affidavit": "## AFFIDAVIT\n\nI, [Deponent Name], aged [Age], residing at [Address], do hereby solemnly affirm:\n\n1. That I am the deponent herein and competent to swear this affidavit.\n2. That [Statement of Facts].\n3. That the statements made herein are true to my knowledge.\n\nVerified at [Place] on [Date].\n\nDEPONENT SIGNATURE\n\nSolemnly affirmed before me on [Date].\n\nNotary / Oath Commissioner",
+            "affidavit": "## AFFIDAVIT\r\n\r\nI, [Deponent Name], aged [Age], residing at [Address], do hereby solemnly affirm:\r\n\r\n1. That I am the deponent herein and competent to swear this affidavit.\r\n2. That [Statement of Facts].\r\n3. That the statements made herein are true to my knowledge.\r\n\r\nVerified at [Place] on [Date].\r\n\r\nDEPONENT SIGNATURE\r\n\r\nSolemnly affirmed before me on [Date].\r\n\r\nNotary / Oath Commissioner",
             
-            "employment_contract": "## EMPLOYMENT AGREEMENT\n\nThis Agreement is entered on [Date] between:\n\nEmployer: [Company Name]\nEmployee: [Employee Name]\n\n1. Designation\nEmployee shall serve as [Designation].\n\n2. Duties\nEmployee shall perform duties assigned from time to time.\n\n3. Salary\nMonthly remuneration shall be Rs. [Salary].\n\n4. Confidentiality\nEmployee shall maintain confidentiality during and after employment.\n\n5. Termination\nEither party may terminate with [Notice Period] days notice.\n\nSigned:\n\nEmployer: _______\nEmployee: _______",
+            "employment_contract": "## EMPLOYMENT AGREEMENT\r\n\r\nThis Agreement is entered on [Date] between:\r\n\r\nEmployer: [Company Name]\r\nEmployee: [Employee Name]\r\n\r\n1. Designation\r\nEmployee shall serve as [Designation].\r\n\r\n2. Duties\r\nEmployee shall perform duties assigned from time to time.\r\n\r\n3. Salary\r\nMonthly remuneration shall be Rs. [Salary].\r\n\r\n4. Confidentiality\r\nEmployee shall maintain confidentiality during and after employment.\r\n\r\n5. Termination\r\nEither party may terminate with [Notice Period] days notice.\r\n\r\nSigned:\r\n\r\nEmployer: _______\r\nEmployee: _______",
             
-            "posh_complaint": "## COMPLAINT UNDER POSH ACT, 2013\n\nTo,\nThe Internal Complaints Committee\n[Organization Name]\n\nSubject: Complaint under Sexual Harassment of Women at Workplace (Prevention, Prohibition and Redressal) Act, 2013\n\n1. Complainant Details\nName: [Complainant Name]\nDesignation: [Designation]\nDepartment: [Department]\n\n2. Respondent Details\nName: [Respondent Name]\nDesignation: [Respondent Designation]\nRelationship with Complainant: [Relationship]\n\n3. Incident Details\nDate of Incident: [Date]\nPlace of Incident: [Place]\nDescription of Incident:\n[Detailed Description of Harassment]\n\n4. Impact\nThe incident has created a hostile work environment and affected my dignity/work performance.\n\n5. Witnesses (if any)\n[List of Witnesses]\n\n6. Evidence (if any)\n[List of Evidence]\n\n7. Relief Sought\nI requested the ICC to conduct an inquiry into this matter and take appropriate action against the respondent under the POSH Act.\n\nI hereby declare that the information provided above is true and correct to the best of my knowledge.\n\nSignature: ______\nDate: ______",
+            "posh_complaint": "## COMPLAINT UNDER POSH ACT, 2013\r\n\r\nTo,\r\nThe Internal Complaints Committee\r\n[Organization Name]\r\n\r\nSubject: Complaint under Sexual Harassment of Women at Workplace (Prevention, Prohibition and Redressal) Act, 2013\r\n\r\n1. Complainant Details\r\nName: [Complainant Name]\r\nDesignation: [Designation]\r\nDepartment: [Department]\r\n\r\n2. Respondent Details\r\nName: [Respondent Name]\r\nDesignation: [Respondent Designation]\r\nRelationship with Complainant: [Relationship]\r\n\r\n3. Incident Details\r\nDate of Incident: [Date]\r\nPlace of Incident: [Place]\r\nDescription of Incident:\r\n[Detailed Description of Harassment]\r\n\r\n4. Impact\r\nThe incident has created a hostile work environment and affected my dignity/work performance.\r\n\r\n5. Witnesses (if any)\r\n[List of Witnesses]\r\n\r\n6. Evidence (if any)\r\n[List of Evidence]\r\n\r\n7. Relief Sought\r\nI requested the ICC to conduct an inquiry into this matter and take appropriate action against the respondent under the POSH Act.\r\n\r\nI hereby declare that the information provided above is true and correct to the best of my knowledge.\r\n\r\nSignature: ______\r\nDate: ______",
             
-            "rti_application": "## APPLICATION UNDER RTI ACT, 2005\n\nTo,\nThe Public Information Officer\n[Department Name]\n\nSubject: Information under RTI Act, 2005\n\nSir/Madam,\n\nKindly provide the following information regarding [Subject Matter]:\n\n1. [Question 1]\n2. [Question 2]\n\nI have enclosed the application fee of Rs. 10.\n\nAddress for correspondence: [Address]\n\nDate: [Date]\nApplicant Signature: _______"
+            "rti_application": "## APPLICATION UNDER RTI ACT, 2005\r\n\r\nTo,\r\nThe Public Information Officer\r\n[Department Name]\r\n\r\nSubject: Information under RTI Act, 2005\r\n\r\nSir/Madam,\r\n\r\nKindly provide the following information regarding [Subject Matter]:\r\n\r\n1. [Question 1]\r\n2. [Question 2]\r\n\r\nI have enclosed the application fee of Rs. 10.\r\n\r\nAddress for correspondence: [Address]\r\n\r\nDate: [Date]\r\nApplicant Signature: _______"
         }
 
         template = templates.get(draft_type, "Generate a formal legal document for the user.")
 
         system_prompt = (
-            "You are an Indian Legal Drafting Assistant. YOUR GOAL is to fill the provided template accurately.\n\n"
-            f"TEMPLATE STRUCTURE (Reference Only):\n{template}\n\n"
-            "CRITICAL RULES:\n"
-            "1. NO MARKDOWN BOLDING: Do NOT use **bold** or *italic* syntax. Use plain text.\n"
-            "2. ADAPTIVE LENGTH: If user provides detailed input, EXPAND the draft. Add extra paragraphs/points to cover all user details. Do NOT truncate user info to fit the template.\n"
-            "3. REPLACE PLACEHOLDERS: Replace [Name], [Date] with actual info. Infer missing info reasonably.\n"
-            "4. OUTPUT: Return ONLY the filled document content.\n"
-            "5. DISCLAIMER: Add a standard disclaimer at the very bottom.\n\n"
+            "You are an Indian Legal Drafting Assistant. YOUR GOAL is to fill the provided template accurately.\r\n\r\n"
+            f"TEMPLATE STRUCTURE (Reference Only):\r\n{template}\r\n\r\n"
+            "CRITICAL RULES:\r\n"
+            "1. NO MARKDOWN BOLDING: Do NOT use **bold** or *italic* syntax. Use plain text.\r\n"
+            "2. ADAPTIVE LENGTH: If user provides detailed input, EXPAND the draft. Add extra paragraphs/points to cover all user details. Do NOT truncate user info to fit the template.\r\n"
+            "3. REPLACE PLACEHOLDERS: Replace [Name], [Date] with actual info. Infer missing info reasonably.\r\n"
+            "4. OUTPUT: Return ONLY the filled document content.\r\n"
+            "5. DISCLAIMER: Add a standard disclaimer at the very bottom.\r\n\r\n"
         )
 
         if language == 'hi':
             system_prompt += (
-                "CRITICAL HINDI RULES:\n"
-                "1. TRANSLATE THE ENTIRE DOCUMENT TO HINDI (Devanagari).\n"
-                "2. USE CORRECT LEGAL TERMINOLOGY (Glossary below):\n"
-                "   - 'Legal Notice' -> 'विधिक सूचना' (Vidhik Suchna)\n"
-                "   - 'Demand' -> 'मांग' (Maang) or 'अपेक्षा' (Apeksha)\n"
-                "   - 'Cause of Action' -> 'वाद का कारण' (Vaad ka Kaaran)\n"
-                "   - 'Rent Agreement' -> 'किरायानामा' (Kirayanama)\n"
-                "   - 'Affidavit' -> 'शपथ पत्र' (Shapath Patra)\n"
-                "3. Translate Headers properly (e.g., '1. Purpose' -> '1. उद्देश्य').\n"
-                "4. ONLY keep specific Act Names/Section Numbers in English (e.g., 'Section 420 IPC').\n"
-                "5. Do NOT use Hinglish. Ensure full grammatical correctness.\n"
+                "CRITICAL HINDI RULES:\r\n"
+                "1. TRANSLATE THE ENTIRE DOCUMENT TO HINDI (Devanagari).\r\n"
+                "2. USE CORRECT LEGAL TERMINOLOGY (Glossary below):\r\n"
+                "   - 'Legal Notice' -> 'विधिक सूचना' (Vidhik Suchna)\r\n"
+                "   - 'Demand' -> 'मांग' (Maang) or 'अपेक्षा' (Apeksha)\r\n"
+                "   - 'Cause of Action' -> 'वाद का कारण' (Vaad ka Kaaran)\r\n"
+                "   - 'Rent Agreement' -> 'किरायानामा' (Kirayanama)\r\n"
+                "   - 'Affidavit' -> 'शपथ पत्र' (Shapath Patra)\r\n"
+                "3. Translate Headers properly (e.g., '1. Purpose' -> '1. उद्देश्य').\r\n"
+                "4. ONLY keep specific Act Names/Section Numbers in English (e.g., 'Section 420 IPC').\r\n"
+                "5. Do NOT use Hinglish. Ensure full grammatical correctness.\r\n"
             )
         else:
             system_prompt += "Respond in formal English."
 
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Details for draft:\n{details}"}
+            {"role": "user", "content": f"Details for draft:\r\n{details}"}
         ]
 
         try:
             # Using model_simple (Mistral) for better reliability during demo
-            return self._call_llm(messages, max_tokens=2000, model_override=self.model_simple)
+            draft = self._call_llm(messages, max_tokens=1500, model_override=self.model_simple)
+            return self._trim_runaway(draft)
         except Exception as e:
             print(f"[RAGEngine] Drafting failed: {e}")
             return f"Error: Could not generate draft. Reason: {str(e)}"

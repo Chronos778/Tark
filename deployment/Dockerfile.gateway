@@ -7,6 +7,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+# The browser talks to the gateway on the same origin; Supabase values come from build args.
+# Environment variables take precedence over .env in Vite, so a local .env cannot leak in.
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_PUBLISHABLE_KEY
+ENV VITE_API_URL=/api/v1     VITE_SUPABASE_URL=$VITE_SUPABASE_URL     VITE_SUPABASE_PUBLISHABLE_KEY=$VITE_SUPABASE_PUBLISHABLE_KEY
 RUN npm run build
 
 # Stage 2: Final Image

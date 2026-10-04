@@ -53,7 +53,7 @@ const ComparisonPage = () => {
         setError("");
 
         // Define fallback logic for curated data
-        const useCuratedFallback = () => {
+        const applyCuratedFallback = () => {
              if (selectedSection && 
                 selectedSection.summary_of_change && 
                 normalizeText(selectedSection.text_ipc || "") === normalizeText(text1) && 
@@ -62,7 +62,7 @@ const ComparisonPage = () => {
                 console.log("Using curated fallback for", selectedSection.bns);
                 toast({
                      title: "AI Service Busy",
-                     description: "Using verified high-impact analysis instead.",
+                     description: "Showing the recorded comparison for this section instead.",
                      duration: 3000,
                 });
                 
@@ -71,7 +71,7 @@ const ComparisonPage = () => {
                     legal_impact: selectedSection.summary_of_change,
                     penalty_difference: "Refer to full text for specific penalty matrix.",
                     key_changes: [selectedSection.summary_of_change],
-                    verdict: "High Impact Legislative Change"
+                    verdict: "Recorded comparison (live AI analysis was unavailable)"
                 });
                 setIsLoading(false);
                 return true;
@@ -98,6 +98,9 @@ const ComparisonPage = () => {
 
             const data = await response.json();
             
+            if (data.comparison?.error) {
+                throw new Error(data.comparison.error);
+            }
             if (data.comparison) {
                  if (typeof data.comparison === 'string') {
                      setResult({
@@ -118,7 +121,7 @@ const ComparisonPage = () => {
             console.error("AI Analysis failed:", error);
             
             // Fallback: Try curated data
-            const fallbackSuccess = useCuratedFallback();
+            const fallbackSuccess = applyCuratedFallback();
             
             if (!fallbackSuccess) {
                 toast({
@@ -209,14 +212,14 @@ const ComparisonPage = () => {
     };
 
     return (
-        <div className="min-h-screen flex flex-col bg-[#050505] text-white selection:bg-purple-500/30">
+        <div className="min-h-screen flex flex-col bg-[#0B0A09] text-white selection:bg-saffron/30">
             <Header autoHide />
             
              {/* Background Gradients */}
              {/* Background Gradients - Removed as per user request */}
             {/* <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full max-w-7xl pointer-events-none opacity-20">
-                <div className="absolute top-20 left-1/4 w-96 h-96 bg-purple-600/30 rounded-full blur-[100px]" />
-                <div className="absolute bottom-20 right-1/4 w-96 h-96 bg-indigo-600/30 rounded-full blur-[100px]" />
+                <div className="absolute top-20 left-1/4 w-96 h-96 bg-saffron/30 rounded-full blur-[100px]" />
+                <div className="absolute bottom-20 right-1/4 w-96 h-96 bg-saffron/30 rounded-full blur-[100px]" />
             </div> */}
 
             <div className="container mx-auto px-4 pt-12 pb-12 flex-1 max-w-6xl relative z-10">
@@ -228,8 +231,8 @@ const ComparisonPage = () => {
                     className="text-center mb-10 space-y-4"
                 >
 
-                    <h1 className="text-4xl md:text-5xl font-serif font-bold text-white">
-                        From <span className="text-purple-500">IPC</span> to <span className="text-blue-500">BNS</span>
+                    <h1 className="text-4xl md:text-5xl font-display font-bold text-white">
+                        From <span className="text-saffron">IPC</span> to <span className="text-blue-500">BNS</span>
                     </h1>
                     <p className="text-gray-400 text-lg max-w-2xl mx-auto">
                         Paste any two text blocks to instantly identify legal shifts, penalty updates, and semantic chances.
@@ -255,25 +258,25 @@ const ComparisonPage = () => {
                     transition={{ delay: 0.3 }}
                     className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8 relative"
                 >
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 hidden lg:flex items-center justify-center w-10 h-10 rounded-full bg-[#09090B] border border-white/10 shadow-xl">
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 hidden lg:flex items-center justify-center w-10 h-10 rounded-full bg-[#0B0A09] border border-white/10 shadow-xl">
                         <ArrowRightLeft className="w-4 h-4 text-gray-400" />
                     </div>
 
-                    <div className="group rounded-3xl p-[1px] bg-gradient-to-br from-purple-500/50 to-transparent">
+                    <div className="group rounded-3xl p-[1px] bg-bone/10">
                         <div className="bg-black/80 backdrop-blur-xl h-full rounded-[23px] p-6 border border-white/5">
-                            <div className="flex items-center gap-2 mb-4 text-purple-500 font-semibold uppercase tracking-wider text-xs">
+                            <div className="flex items-center gap-2 mb-4 text-saffron font-semibold uppercase tracking-wider text-xs">
                                 <BookOpen className="w-4 h-4" /> Old Law (IPC)
                             </div>
                             <Textarea 
                                 value={text1} 
                                 onChange={(e) => setText1(e.target.value)}
                                 placeholder="Paste IPC section here..."
-                                className="min-h-[250px] bg-transparent border-none resize-none text-gray-300 placeholder:text-gray-600 focus-visible:ring-0 text-base font-serif leading-relaxed p-0"
+                                className="min-h-[250px] bg-transparent border-none resize-none text-gray-300 placeholder:text-gray-600 focus-visible:ring-0 text-base font-display leading-relaxed p-0"
                             />
                         </div>
                     </div>
 
-                    <div className="group rounded-3xl p-[1px] bg-gradient-to-bl from-blue-500/50 to-transparent">
+                    <div className="group rounded-3xl p-[1px] bg-bone/10">
                         <div className="bg-black/80 backdrop-blur-xl h-full rounded-[23px] p-6 border border-white/5">
                              <div className="flex items-center gap-2 mb-4 text-blue-500 font-semibold uppercase tracking-wider text-xs">
                                 <Scale className="w-4 h-4" /> New Law (BNS)
@@ -282,7 +285,7 @@ const ComparisonPage = () => {
                                 value={text2} 
                                 onChange={(e) => setText2(e.target.value)}
                                 placeholder="Paste BNS section here..."
-                                className="min-h-[250px] bg-transparent border-none resize-none text-gray-300 placeholder:text-gray-600 focus-visible:ring-0 text-base font-serif leading-relaxed p-0"
+                                className="min-h-[250px] bg-transparent border-none resize-none text-gray-300 placeholder:text-gray-600 focus-visible:ring-0 text-base font-display leading-relaxed p-0"
                             />
                         </div>
                     </div>
@@ -301,7 +304,7 @@ const ComparisonPage = () => {
                         disabled={isLoading} 
                         className="h-14 px-10 rounded-full bg-white text-black hover:bg-gray-200 shadow-[0_0_30px_rgba(255,255,255,0.2)] text-base font-medium transition-all hover:scale-105"
                     >
-                        {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sparkles className="mr-2 h-5 w-5 text-purple-600" />}
+                        {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Sparkles className="mr-2 h-5 w-5 text-saffron" />}
                         {isLoading ? "Analyzing Differences..." : "Analyze Impact"}
                     </Button>
                 </motion.div>
@@ -319,13 +322,13 @@ const ComparisonPage = () => {
                                 "p-6 rounded-2xl border flex items-start gap-5 backdrop-blur-xl",
                                 result.change_type.includes("Major") ? "bg-red-500/10 border-red-500/20 text-red-200" : 
                                 result.change_type.includes("Major") ? "bg-red-500/10 border-red-500/20 text-red-200" : 
-                                result.change_type.includes("Modified") ? "bg-indigo-500/10 border-indigo-500/20 text-indigo-200" :
+                                result.change_type.includes("Modified") ? "bg-saffron/10 border-saffron/20 text-saffron" :
                                 "bg-green-500/10 border-green-500/20 text-green-200"
                             )}>
                                 <div className={cn(
                                     "p-3 rounded-xl shrink-0",
                                      result.change_type.includes("Major") ? "bg-red-500/20" : 
-                                     result.change_type.includes("Modified") ? "bg-indigo-500/20" :
+                                     result.change_type.includes("Modified") ? "bg-saffron/20" :
                                      "bg-green-500/20"
                                 )}>
                                     <Gavel className="w-6 h-6" />
@@ -343,7 +346,7 @@ const ComparisonPage = () => {
                                     <ul className="space-y-3">
                                         {result.key_changes.map((change, i) => (
                                             <li key={i} className="flex items-start gap-3 text-sm text-gray-300">
-                                                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0 shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
+                                                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-saffron shrink-0 " />
                                                 {change}
                                             </li>
                                         ))}

@@ -1,14 +1,14 @@
-# Tark: AI-Powered Legal Research and Reasoning Engine
+# Nyaya: AI-Powered Legal Research and Reasoning Engine
 
 Democratizing Indian Legal Justice with Retrieval-Augmented Generation (RAG) and Domain-Adapted Intelligence.
 
-Tark is an advanced, high-precision legal research platform engineered to assist legal practitioners, researchers, students, and citizens in navigating India's legal transition from the historic **Indian Penal Code (IPC, 1860)** to the **Bharatiya Nyaya Sanhita (BNS, 2023)**. The platform also provides comprehensive coverage for cyber laws (**Information Technology Act, 2000**), corporate regulations (**Companies Act, 2013**), consumer rights (**Consumer Protection Act, 2019**), and landmark **Supreme Court precedents**.
+Nyaya is an advanced, high-precision legal research platform engineered to assist legal practitioners, researchers, students, and citizens in navigating India's legal transition from the historic **Indian Penal Code (IPC, 1860)** to the **Bharatiya Nyaya Sanhita (BNS, 2023)**. The platform also includes key sections of the **Information Technology Act, 2000** (section-labelled via `scripts/label_it_act_sections.py`), plus key sections of the **Companies Act, 2013**, the **Consumer Protection Act, 2019** and the **Motor Vehicles Act, 1988** (partial coverage, loaded with `scripts/ingest_curated_acts.py`), plus about 1,100 **Supreme Court** judgments.
 
 ---
 
 ## System Architecture
 
-Tark is built upon a resilient, three-tier distributed architecture engineered for low-latency reasoning and data security:
+Nyaya is built upon a resilient, three-tier distributed architecture engineered for low-latency reasoning and data security:
 
 ```
 ┌────────────────────────────────────────────────────────┐
@@ -77,7 +77,7 @@ Template-driven, legally validated drafting in **formal English** or **Devanagar
 | **API Gateway** | Node.js, Express, `http-proxy-middleware`, `express-rate-limit` |
 | **AI and RAG Service** | Python 3.10+, FastAPI, Uvicorn, ChromaDB, ONNX Runtime (`all-MiniLM-L6-v2`) |
 | **Document Processing** | PyMuPDF (fitz), pypdf, Tesseract OCR, Poppler (`pdf2image`), BeautifulSoup4 |
-| **LLM Execution** | Hybrid support: Local SLM (Ollama / Llama 3.2), NVIDIA NIM, or OpenRouter |
+| **LLM Execution** | Hosted APIs: Groq (preferred), NVIDIA NIM or OpenRouter. Without a key, only vector retrieval runs |
 
 ---
 
@@ -93,7 +93,7 @@ Template-driven, legally validated drafting in **formal English** or **Devanagar
 1. **Clone the repository**:
    ```bash
    git clone https://github.com/satyam2006-cmd/Tark.git
-   cd Tark
+   cd Tark   # the repository keeps its original name
    ```
 
 2. **Install Node.js dependencies**:
@@ -111,7 +111,8 @@ Template-driven, legally validated drafting in **formal English** or **Devanagar
 ### 3. Environment Configuration
 Create a `.env` file in the project root:
 ```ini
-# Optional Cloud LLM Keys (leave blank for offline / local mode)
+# LLM key: at least one is needed for written answers (Groq is free: console.groq.com/keys)
+GROQ_API_KEY=
 NVIDIA_API_KEY=
 OPENROUTER_API_KEY=
 
@@ -126,7 +127,7 @@ PORT=3001
 #### Terminal 1 — Start the RAG Microservice:
 ```powershell
 cd rag_service
-..\.venv\Scripts\uvicorn main:app --reload --port 8000
+..\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
 ```
 
 #### Terminal 2 — Start the Frontend Application:
@@ -134,25 +135,22 @@ cd rag_service
 npm run dev
 ```
 
-The web client will be available at `http://localhost:5173` and the interactive API documentation will be accessible at `http://localhost:8000/docs`.
+The web client will be available at `http://localhost:8080` and the interactive API documentation will be accessible at `http://localhost:8000/docs`.
 
 ---
 
-## Running the Automated Test Suite
+## Running the Automated Tests
 
-Execute the end-to-end platform validation suite:
 ```bash
-.\.venv\Scripts\python.exe tests\test_all_features.py
+npm test                                                       # frontend unit tests (PDF export)
+npx tsc --noEmit -p tsconfig.app.json                          # type check
+npm run lint
+.venv\Scripts\python.exe -m unittest discover -s rag_service\tests -p "test_unit_*.py"   # backend logic, offline
+.venv\Scripts\python.exe rag_service\tests\eval_retrieval.py                           # retrieval quality, no LLM
 ```
 
-This validates:
-1. Vector Database and Knowledge Base Connectivity
-2. Criminal Law Retrieval (BNS Section 103)
-3. Cyber Law Retrieval (IT Act 2000)
-4. Citation Integrity and Primary Source URL Verification
-5. Balanced Arguments and Neutral Legal Analysis
-6. Legal Document Drafting Engine
-7. Document Summarization Pipeline
+The retrieval check asks 38 legal questions and verifies the correct statute section is among the passages given to
+the model. CI (`.github/workflows/ci.yml`) runs all of the above. See `INSTALLATION_GUIDE.md` for full setup.
 
 ---
 

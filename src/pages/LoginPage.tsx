@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +8,9 @@ import { Mail, Lock, ArrowRight } from "lucide-react";
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
   const [formData, setFormData] = useState({
     email: "",
     password: "",
@@ -24,23 +28,28 @@ const LoginPage = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    setFormError("");
     if (!validateForm()) return;
 
-    // Simple demo login - just set auth flag
-    const user = {
-      name: "Demo User",
-      email: formData.email,
-      loginAt: new Date().toISOString(),
-    };
-    
-    localStorage.setItem("legalai_user", JSON.stringify(user));
-    localStorage.setItem("legalai_auth", "true");
-    
-    // Redirect to landing page
-    navigate("/");
+    setSubmitting(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: formData.email.trim(),
+      password: formData.password,
+    });
+    setSubmitting(false);
+
+    if (error) {
+      setFormError(
+        /confirm/i.test(error.message)
+          ? "Please confirm your email first. Check your inbox for the confirmation link."
+          : error.message,
+      );
+      return;
+    }
+    const from = (location.state as { from?: string } | null)?.from;
+    navigate(from ?? "/chat");
   };
 
   const handleChange = (field: string, value: string) => {
@@ -51,7 +60,7 @@ const LoginPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#09090B] flex items-center justify-center px-4 py-12">
+    <div className="min-h-screen bg-[#0B0A09] flex items-center justify-center px-4 py-12">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -60,25 +69,24 @@ const LoginPage = () => {
       >
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 mb-8">
-          <img 
-            src="/logo.jpg" 
-            alt="LegalAi Logo" 
-            className="h-12 w-12 rounded-lg object-cover border border-[#f8f8f8]/20 shadow-lg"
-          />
-          <h1 className="text-3xl font-bold text-white">LegalAi</h1>
+          <span aria-hidden="true" className="grid size-12 place-items-center rounded-lg border border-saffron/50 bg-saffron/10 font-display text-3xl leading-none text-saffron">§</span>
+          <h1 className="text-4xl font-medium text-bone">Nyaya</h1>
         </div>
 
         {/* Form Container */}
-        <div className="bg-gradient-to-br from-purple-500/5 to-indigo-500/5 rounded-2xl p-8 border border-[#f8f8f8]/10">
+        <div className="bg-ink-2 rounded-2xl p-8 border border-[#F1EADB]/10">
           <h2 className="text-2xl font-bold text-white mb-2">Welcome Back</h2>
-          <p className="text-[#f8f8f8]/60 text-sm mb-6">
+          <p className="text-[#F1EADB]/60 text-sm mb-6">
             Sign in to access your legal research tools
           </p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {formError && (
+              <p role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">{formError}</p>
+            )}
             {/* Email Field */}
             <div>
-              <label className="block text-sm font-medium text-[#f8f8f8]/80 mb-2">
+              <label className="block text-sm font-medium text-[#F1EADB]/80 mb-2">
                 <Mail className="inline w-4 h-4 mr-2" />
                 Email Address
               </label>
@@ -87,7 +95,7 @@ const LoginPage = () => {
                 value={formData.email}
                 onChange={(e) => handleChange("email", e.target.value)}
                 placeholder="your.email@example.com"
-                className={`bg-[#09090B] border-[#f8f8f8]/20 text-white placeholder:text-[#f8f8f8]/40 focus:border-purple-500 ${
+                className={`bg-[#0B0A09] border-[#F1EADB]/20 text-white placeholder:text-[#F1EADB]/40 focus:border-saffron ${
                   errors.email ? "border-red-500" : ""
                 }`}
               />
@@ -96,7 +104,7 @@ const LoginPage = () => {
 
             {/* Password Field */}
             <div>
-              <label className="block text-sm font-medium text-[#f8f8f8]/80 mb-2">
+              <label className="block text-sm font-medium text-[#F1EADB]/80 mb-2">
                 <Lock className="inline w-4 h-4 mr-2" />
                 Password
               </label>
@@ -105,7 +113,7 @@ const LoginPage = () => {
                 value={formData.password}
                 onChange={(e) => handleChange("password", e.target.value)}
                 placeholder="Enter your password"
-                className={`bg-[#09090B] border-[#f8f8f8]/20 text-white placeholder:text-[#f8f8f8]/40 focus:border-purple-500 ${
+                className={`bg-[#0B0A09] border-[#F1EADB]/20 text-white placeholder:text-[#F1EADB]/40 focus:border-saffron ${
                   errors.password ? "border-red-500" : ""
                 }`}
               />
@@ -114,32 +122,26 @@ const LoginPage = () => {
 
             {/* Forgot Password Link */}
             <div className="text-right">
-              <a href="#" className="text-sm text-purple-400 hover:underline">
+              <Link to="/forgot-password" className="text-sm text-saffron hover:underline">
                 Forgot password?
-              </a>
+              </Link>
             </div>
 
             {/* Submit Button */}
             <Button
               type="submit"
-              className="w-full bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600 text-white font-semibold py-6 rounded-lg transition-all shadow-lg hover:shadow-purple-500/50"
+              disabled={submitting}
+              className="w-full bg-saffron hover:bg-saffron/85 text-ink font-semibold py-6 rounded-lg transition-all shadow-lg hover:shadow-saffron/"
             >
-              Sign In
+              {submitting ? "Signing in…" : "Sign In"}
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </form>
 
-          {/* Demo Credentials */}
-          <div className="mt-6 p-3 bg-[#09090B]/50 rounded-lg border border-purple-500/20">
-            <p className="text-xs text-[#f8f8f8]/60 text-center">
-              <span className="text-purple-400">Demo:</span> Use any email and password to sign in
-            </p>
-          </div>
-
           {/* Signup Link */}
-          <p className="text-center text-sm text-[#f8f8f8]/60 mt-6">
+          <p className="text-center text-sm text-[#F1EADB]/60 mt-6">
             Don't have an account?{" "}
-            <Link to="/signup" className="text-purple-400 font-medium hover:underline">
+            <Link to="/signup" className="text-saffron font-medium hover:underline">
               Create Account
             </Link>
           </p>
@@ -147,7 +149,7 @@ const LoginPage = () => {
 
         {/* Back to Home */}
         <div className="text-center mt-6">
-          <Link to="/" className="text-sm text-[#f8f8f8]/50 hover:text-[#f8f8f8]/80 transition-colors">
+          <Link to="/" className="text-sm text-[#F1EADB]/50 hover:text-[#F1EADB]/80 transition-colors">
             ← Back to Home
           </Link>
         </div>
